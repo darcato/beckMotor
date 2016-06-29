@@ -1,17 +1,22 @@
-#Makefile at top of application tree
-TOP = .
+# Makefile
+TOP = ../..
 include $(TOP)/configure/CONFIG
-DIRS := $(DIRS) $(filter-out $(DIRS), configure)
-DIRS := $(DIRS) $(filter-out $(DIRS), $(wildcard *App))
-DIRS := $(DIRS) $(filter-out $(DIRS), $(wildcard iocBoot))
 
-define DIR_template
- $(1)_DEPEND_DIRS = configure
-endef
-$(foreach dir, $(filter-out configure,$(DIRS)),$(eval $(call DIR_template,$(dir))))
+# The following are used for debugging messages.
+USR_CXXFLAGS += -DDEBUG
 
-iocBoot_DEPEND_DIRS += $(filter %App,$(DIRS))
+DBD += devBeckMotor.dbd
 
-include $(TOP)/configure/RULES_TOP
+LIBRARY_IOC = Beck
 
+#SRCS += BeckRegister.cc
+
+# Advanced Control Systems driver support.
+#SRCS += devMCB4B.c drvMCB4B.c
+SRCS += BeckDriver.cpp
+
+Beck_LIBS += motor asyn
+Beck_LIBS += $(EPICS_BASE_IOC_LIBS)
+
+include $(TOP)/configure/RULES
 
