@@ -18,10 +18,13 @@ class asynInt32ClientSyncIO : public asynInt32Client {
 private:
 	epicsEvent event_;
 	epicsInt32 value_;
+	asynStatus status_;
 	static void newvaluecb(void *userPvt, asynUser *pasynUser, epicsInt32 data) {
 		asynInt32ClientSyncIO *obj=static_cast<asynInt32ClientSyncIO *>(userPvt);
 		obj->value_ = data;
+		obj->status_ = asynSuccess;
 		obj->event_.signal();
+		//printf("----------------------------------callback!!!!!!1\n");
 	}
 
 public:
@@ -31,9 +34,10 @@ public:
 	{
 		registerInterruptUser(asynInt32ClientSyncIO::newvaluecb);
 	}
-	void readWait(epicsInt32 *ret){
+	asynStatus readWait(epicsInt32 *ret){
 		event_.wait();
 		*ret = value_;
+		return status_;
 	}
 
 
@@ -60,9 +64,9 @@ private:
                                    *   Abbreviated because it is used very frequently */
 
   //asynUsers representing the 6 registers of the KL2541
-  asynInt32Client statusByte_;
+  asynInt32ClientSyncIO statusByte_;
   asynInt32ClientSyncIO dataIn_;
-  asynInt32Client statusWord_;
+  asynInt32ClientSyncIO statusWord_;
   asynInt32Client controlByte_;
   asynInt32Client dataOut_;
   asynInt32Client controlWord_;
