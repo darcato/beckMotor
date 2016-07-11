@@ -24,7 +24,6 @@ private:
 		obj->value_ = data;
 		obj->status_ = asynSuccess;
 		obj->event_.signal();
-		//printf("----------------------------------callback!!!!!!1\n");
 	}
 
 public:
@@ -77,10 +76,14 @@ private:
   asynUser *controlByteBits_;
   asynUser *controlWordBits_;
 
-
   //an asynUser to trigger the modbusIo of the input registers
   asynInt32Client triggerRead_;
 
+  //a flag to indicate end of movement
+  bool moveDone, movePend;
+  double currPos;
+  epicsMutex modbusMutex;
+  //int rpos, cpos;
   //util methods
   asynStatus readPosition(double *position);
   asynStatus endMove();
