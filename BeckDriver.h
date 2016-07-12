@@ -22,7 +22,7 @@ private:
 	static void newvaluecb(void *userPvt, asynUser *pasynUser, epicsInt32 data) {
 		asynInt32ClientSyncIO *obj=static_cast<asynInt32ClientSyncIO *>(userPvt);
 		obj->value_ = data;
-		obj->status_ = asynSuccess;
+		obj->status_ = asynSuccess;  //TODO: propagate status
 		obj->event_.signal();
 	}
 
@@ -82,12 +82,11 @@ private:
   //a flag to indicate end of movement
   bool moveDone, movePend;
   double currPos;
+  double accl, velo, minVelo;
   epicsMutex modbusMutex;
-  //int rpos, cpos;
+
   //util methods
-  asynStatus readPosition(double *position);
-  asynStatus endMove();
-//  asynStatus sendAccelAndVelocity(double accel, double velocity);
+  asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
 
 friend class BeckController;
 };

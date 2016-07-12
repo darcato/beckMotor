@@ -28,7 +28,6 @@ June 17, 2016
 
 
 #define PLC_LOOP_US 1
-#define MODBUS_IO_US 1
 
 BeckController::BeckController(const char *portName, const int numAxis, const char *inModbusPName, const char *outModbusPName, double movingPollPeriod, double idlePollPeriod )
   :  asynMotorController(portName, numAxis, 0,
@@ -153,62 +152,36 @@ void BeckAxis::report(FILE *fp, int level)
     asynMotorAxis::report(fp, level);
 }
 
-//private method to read position from KL2541
-asynStatus BeckAxis::readPosition(double *position) {
-    epicsInt32 pLow = 0;
-    epicsInt32 pHigh = 0;
+asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
+	modbusMutex.lock();
+	controlByte_.write(0x80); //prevent undesired writings
+	usleep(1);
 
-    controlByte_.write(0x80);
-    //usleep(PLC_LOOP_US);
-    triggerRead_.write(0);
-    statusByte_.readWait(&pLow); //to be overwritten
-    statusWord_.readWait(&pLow); //to be overwritten
-    dataIn_.readWait(&pLow);
+	dataOut_.write((int) min_velocity);
+	controlByte_.write(0xE6);
+	controlByte_.write(0xA6);
+	usleep(1);
 
-    controlByte_.write(0x81);
-    //usleep(PLC_LOOP_US);
-    triggerRead_.write(0);
-    statusByte_.readWait(&pHigh); //to be overwritten
-    statusWord_.readWait(&pHigh); //to be overwritten
-    dataIn_.readWait(&pHigh);
+	dataOut_.write((int) max_velocity);
+	controlByte_.write(0xE7);
+	controlByte_.write(0xA7);
+	usleep(1);
 
-    *position = pLow+(pHigh<<16);
-    //printf("Read Position is: 0x %04x %04x\n", pHigh, pLow);
-    return asynSuccess;
-}
+	dataOut_.write((int) acceleration);
+	controlByte_.write(0xE8);
+	controlByte_.write(0xA8);
+	usleep(1);
 
-asynStatus BeckAxis::endMove() {
-    //wait for travel completion
-    epicsInt32 end=0;
-    asynStatus status;
-    epicsUInt16 cmd = 0;
-    int k=0;
-    while(!end) {
-    	status = triggerRead_.write(cmd);
-        statusByte_.readWait(&end); //to be overwritten
-        dataIn_.readWait(&end); //to be overwritten
-        status = statusWord_.readWait(&end);
-        printf("End is %d\n", end);
-        if (!end) {
-            usleep(1e4);
-        }
-        k++;
-    }
-
-    printf("Movement completed after %d loops\n", k);
-
-    //end movement
-    controlByte_.write(0x21);
-
-    return asynSuccess;
+	modbusMutex.unlock();
+	return asynSuccess;
 }
 
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
 {
-    //TODO set velocity & acceleration
+    //TODO set velocity & acceleration //DONE
     //TODO check for overflow in relative mode
     //TODO check first execution //DONE
-    //TODO understand the useless write of 0x82 to controlByte
+    //TODO understand the useless write of 0x82 to controlByte //DONE
     //TODO verify stall or unable to end movement
 
     //TODO may be useless to read position from HW  //DONE
@@ -217,51 +190,42 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
     //TODO register callback to wait end of movement  //DONE
 
-	if (movePend)
-		return asynSuccess;
+	//This to prevent to put movePend to 1 if cannot move
+	if (movePend) return asynSuccess;
+
+	setAcclVelo(min_velocity, max_velocity, acceleration);
 
 	modbusMutex.lock();
 
     printf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
 
-    //rpos = relative ? cpos + position : position;
-    //printf("rpos %i\n", rpos);
-
-    //return asynSuccess;
-
     //stop motor
     controlByte_.write(0x21);
 
     //set new position
-    //printf("############ %i %08x %.2lf\n", (int)position, (int)position, position);
     int newPos =  (relative ? currPos : 0 ) + position;
 
-    printf("############ %i %08x %.2lf %04x %04x\n", (int)position, (int)position, position, newPos & 0xffff, (newPos>>16) & 0xffff);
     if (!movePend)
     	printf("NewPos is %d\n", newPos);
 
     dataOut_.write(newPos & 0xFFFF);
     controlByte_.write(0xC2);
 
-    //inexplicably useful call
-    //outVal=0x82;
+    //As long as 0xC2 is written in control byte, everything you write in dataOut is written to R7
+    //so we stop this behaviour by writing the reading command 0x87 in controlbyte
     controlByte_.write(0x82);
     usleep(1);
 
     dataOut_.write((newPos>>16) & 0xFFFF);
     controlByte_.write(0xC3);
-
     controlByte_.write(0x83);
-
     usleep(1);
-    //put zeroes in data out
+
+    //put zeroes in data as required
     dataOut_.write(0x0);
 
     movePend=true;
     controlByte_.write(0x25);
-
-  //  endMove();
-  //  moveDone=true;
 
     //printf("Movement complete: new position is 0x%x\n\n", newPos);
     modbusMutex.unlock();
@@ -285,134 +249,72 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 }
 asynStatus BeckAxis::poll(bool *moving)
 {
-
-	//*moving = movingSync;
-	//callParamCallbacks();
-
-	/*int diff = rpos - cpos;
-	int dir = rpos > cpos ? 1 : -1;
-	cpos = cpos + (abs(diff) > 100 ?  100*dir :  diff);*/
-
-	int statusByte;
-	int dataIn;
-	int statusWord;
-
 	if (interruptAccept){
-		modbusMutex.lock();
-		triggerRead_.write(0);
-		statusByte_.readWait(&statusByte);
-		dataIn_.readWait(&dataIn);
-		statusWord_.readWait(&statusWord);
-		moveDone = movePend ? statusWord & 0x8 : true;
-		if (movePend && moveDone)
-			printf("\n\nMOVE DONE ????? %04x----------------------------------------------\n", statusWord);
-		if (moveDone)
-			movePend = false;
-		readPosition(&currPos);
-		modbusMutex.unlock();
-		*moving = moveDone ? false : true;
+	    epicsInt32 statusByte=0;
+	    epicsInt32 dataIn=0;
+	    epicsInt32 statusWord=0;
+	    bool lhigh, llow;
+	    bool regAccess, error, warning, idle, ready;
+	    epicsInt32 loadAngle;
 
+	    modbusMutex.lock();
+	    controlByte_.write(0x80);
+	    //usleep(PLC_LOOP_US);
+	    triggerRead_.write(0);
+	    statusByte_.readWait(&statusByte); //to be overwritten
+	    statusWord_.readWait(&statusWord); //to be overwritten
+	    dataIn_.readWait(&dataIn);
+	    currPos = dataIn;
+
+	    controlByte_.write(0x81);
+	    //usleep(PLC_LOOP_US);
+	    triggerRead_.write(0);
+	    statusByte_.readWait(&statusByte); //to be overwritten
+	    statusWord_.readWait(&statusWord);
+	    dataIn_.readWait(&dataIn);
+	    currPos += dataIn<<16;
+
+	    setDoubleParam(pC_->motorPosition_, currPos);
+
+	    lhigh = statusWord & 0x1;
+	   	llow = statusWord & 0x2;
+	   	setIntegerParam(pC_->motorStatusHighLimit_, lhigh);
+	   	setIntegerParam(pC_->motorStatusLowLimit_, llow);
+
+		moveDone = movePend ? ((statusWord & 0x8) || lhigh || llow) : true;
+		if (moveDone) {
+			controlByte_.write(0x21);
+			movePend = false;
+		}
+		else{
+			controlByte_.write(0x25);
+		}
+		usleep(1);
+		triggerRead_.write(0);
+	    statusByte_.readWait(&statusByte);
+	    dataIn_.readWait(&dataIn);
+	    statusWord_.readWait(&statusWord);
+	    modbusMutex.unlock();
+
+	    regAccess = statusByte & 0x80;
+		error = statusByte & 0x40;
+		setIntegerParam(pC_->motorStatusProblem_, error);
+		warning = statusByte & 0x20;
+		idle = statusByte & 0x10;
+		//printf("statusByte 0x%x\t !idle is %d\n",statusByte,!idle);
+		loadAngle = statusByte & 0xE;
+		ready = statusByte & 0x1;
+		setIntegerParam(pC_->motorStatusPowerOn_, ready);
+
+		*moving = moveDone ? false : true;
 		setIntegerParam(pC_->motorStatusDone_, moveDone);
-		setDoubleParam(pC_->motorPosition_, currPos);
-//		if (movePend)
-//			printf("CURRENT POSITION %.2f\t MOVEDONE = %d, movpend %i %04x\n", currPos, moveDone, movePend, statusWord);
+
+		//printf("Moving: %d\t MoveDone: %d\t SwL: %d\t SwH: %d\n", movePend, moveDone, llow, lhigh);
 		callParamCallbacks();
 	}
 	else {
 		printf("Interruptions not yet allowed..\n");
 	}
-
-    return asynSuccess;
-
-
-
-
-
-
-
-
-
-
-
-
-
-	if (interruptAccept) {
-        int statusWord = 0;
-        int statusByte = 0;
-        *moving = !moveDone;
-
-        if ( !(*moving) ) {
-        	controlByte_.write(0x21);
-        }
-        else{
-           	printf("Moving..\n");
-        }
-
-        triggerRead_.write(0);
-        //usleep(PLC_LOOP_US);
-        dataIn_.readWait(&statusByte); //will be overwritten
-        statusWord_.readWait(&statusWord);
-        statusByte_.readWait(&statusByte);
-
-        //get the end of a movement
-        bool endMov = statusWord & 0x8;
-        setIntegerParam(pC_->motorStatusDone_, endMov);
-
-        //get limit switch status
-        bool lhigh = statusWord & 0x1;
-        bool llow = statusWord & 0x2;
-        setIntegerParam(pC_->motorStatusHighLimit_, lhigh);
-        setIntegerParam(pC_->motorStatusLowLimit_, llow);
-
-        //get moving flag (only in process data mode [SB7==0], else don't change)
-        bool regAccess = statusByte & 0x80;
-        bool error;
-        bool warning;
-        bool idle;
-        int loadAngle;
-        bool ready;
-        if ( !regAccess ) {
-            error = statusByte & 0x40;
-            warning = statusByte & 0x20;
-            idle = statusByte & 0x10;
-            //*moving = !idle;
-            loadAngle = statusByte & 0xE;
-            ready = statusByte & 0x1;
-        }
-
-        //get motor postion
-        double position=0;
-        double vel;
-        readPosition(&position);
-        setDoubleParam(pC_->motorPosition_, (int) position);
-        pC_->getDoubleParam(pC_->motorVelBase_, &vel);
-        //printf("velbase %.1lf\n", vel);
-        //printf("statusByte: 0x%x\tmov: %d\tend %d\t l+ %d\tl- %d\tpos: 0x%x\n", statusByte, *moving, endMov, lhigh, llow, (int) position);
-
-        /* printf("--Going to write 0x21\n");
-        controlByte = 0x21;
-        epicsUInt32 rbit;
-        //pasynInt32SyncIO->write(controlByte_, controlByte, 500);
-        controlByte_.write(controlByte);
-        sleep(2);
-        //pasynInt32SyncIO->read(controlByte_, &controlByte, 500);
-        controlByte_.read(&controlByte);
-        usleep(1e3);
-        printf("-ControlByte is 0x%x\n", controlByte);
-        pasynUInt32DigitalSyncIO->read(controlByteBits_, &rbit, 0x20, 500);
-        usleep(1e3);
-        printf("-Bit 0x20 of controlByte is: %d\n", rbit);
-        printf("-Now zero bit 0x20\n");
-        rbit=0x0;
-        pasynUInt32DigitalSyncIO->write(controlByteBits_, rbit, 0x20, 500);
-        usleep(1e3);
-        pasynUInt32DigitalSyncIO->read(controlByteBits_, &rbit, 0x20, 500);
-        printf("--Bit 0x20 of controlByte is: %d\n\n", rbit);*/
-	}
-
-
-	//callParamCallbacks();
-
 
     return asynSuccess;
 }
