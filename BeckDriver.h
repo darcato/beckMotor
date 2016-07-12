@@ -12,8 +12,11 @@
 #include "asynMotorAxis.h"
 #include <asynPortClient.h>
 
-
-
+/**
+ * -------------------------------------------------
+ * INT32CLIENT
+ * -------------------------------------------------
+ */
 class asynInt32ClientSyncIO : public asynInt32Client {
 private:
 	epicsEvent event_;
@@ -43,7 +46,11 @@ public:
 };
 
 
-
+/**
+ * -------------------------------------------------
+ * AXIS
+ * -------------------------------------------------
+ */
 class epicsShareClass BeckAxis : public asynMotorAxis {
 public:
   /* These are the methods we override from the base class */
@@ -57,6 +64,8 @@ public:
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setPosition(double position);
 //  asynStatus setClosedLoop(bool closedLoop);
+  asynStatus setCoilCurrent(double maxCurr, double autoHoldinCurr, double manHoldingCurr, double highAccCurr, double lowAccCurr);
+  asynStatus resetController();
 
 private:
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
@@ -84,6 +93,7 @@ private:
   double currPos;
   double accl, velo, minVelo;
   epicsMutex modbusMutex;
+  //int axisNo;
 
   //util methods
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
@@ -92,6 +102,12 @@ friend class BeckController;
 };
 
 
+
+/**
+ * -------------------------------------------------
+ * CONTROLLER
+ * -------------------------------------------------
+ */
 class epicsShareClass BeckController : public asynMotorController {
 protected:
   asynStatus move(double position, int relative, double minVelocity, double maxVelocity, double acceleration);
@@ -108,6 +124,7 @@ public:
   BeckAxis* getAxis(int axisNo);
 
   friend class BeckAxis;
+  friend BeckController * findBeckControllerByName(const char *name);
 };
 
 
