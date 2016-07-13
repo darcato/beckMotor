@@ -174,15 +174,25 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
 	return asynSuccess;
 }
 
-asynStatus BeckAxis::setCoilCurrent(double maxCurr, double autoHoldinCurr, double manHoldingCurr, double highAccCurr, double lowAccCurr) {
+asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double highAccCurr, double lowAccCurr) {
 	int termType = 0;
 	double fullScaleCurr;
-	int setMaxCurrent;
+	int setMaxCurrentA, setMaxCurrentB, setHoldCurr, setHighAccCurr, setLowAccCurr;
+	double setMaxAmp;
 	int percent = -1;
 
-	//read controller code and convert ampere to %
 	modbusMutex.lock();
+
+	//write passcode in register 31
+	controlByte_.write(0x9F);
+	dataOut_.write(0x1235); //0x1235 device password
+	controlByte_.write(0xDF);
+	usleep(PLC_LOOP_US);
+	controlByte_.write(0x9F);
+
+	//read controller code and convert ampere to %
 	controlByte_.write(0x88);
+	usleep(PLC_LOOP_US);
 	triggerRead_.write(0);
 	statusByte_.readWait(&termType);
 	statusWord_.readWait(&termType);
@@ -196,33 +206,166 @@ asynStatus BeckAxis::setCoilCurrent(double maxCurr, double autoHoldinCurr, doubl
 			return asynError;
 		}
 	}
+	printf("Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", termType, fullScaleCurr);
 
-	if (maxCurr>=0) {
-		percent = round( maxCurr / fullScaleCurr *100 );
-		dataOut_.write(percent);
-		controlByte_.write(0xE3);
-	}
-	controlByte_.write(0xA3);
-	triggerRead_.write(0);
-	statusByte_.readWait(&setMaxCurrent);
-	statusWord_.readWait(&setMaxCurrent);
-	dataIn_.readWait(&setMaxCurrent);
-	if (maxCurr>=0 && setMaxCurrent!=percent){
-		printf("Error: Failed to write maxCurrent\n");
-		return asynError;
-	}
-	if (autoHoldinCurr>=0) {
-		if (autoHoldinCurr>setMaxCurrent) {
-			printf("Error: Cannot set holding current higher than maximum coil current!\n");
+	//R35: Maximum coil current A (in % to fullScale of device)
+	//R36: Maximum coil current B (in % to fullScale of device)
+	if (maxAmp>=0) {
+		controlByte_.write(0xA3);
+		usleep(PLC_LOOP_US);
+		triggerRead_.write(0);
+		statusByte_.readWait(&setMaxCurrentA);
+		statusWord_.readWait(&setMaxCurrentA);
+		dataIn_.readWait(&setMaxCurrentA);
+
+		usleep(PLC_LOOP_US);
+
+		controlByte_.write(0xA4);
+		usleep(PLC_LOOP_US);
+		triggerRead_.write(0);
+		statusByte_.readWait(&setMaxCurrentB);
+		statusWord_.readWait(&setMaxCurrentB);
+		dataIn_.readWait(&setMaxCurrentB);
+
+		if (maxAmp>fullScaleCurr) {
+			printf("Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
+			maxAmp = fullScaleCurr;
 		}
-		percent = round( autoHoldinCurr / setMaxCurrent *100 );
+		percent = round( maxAmp / fullScaleCurr *100 );
 		dataOut_.write(percent);
+		if (setMaxCurrentA!=percent) {
+			controlByte_.write(0xE3);
+			usleep(PLC_LOOP_US);
+		}
+		if (setMaxCurrentB!=percent) {
+			controlByte_.write(0xE4);
+			usleep(PLC_LOOP_US);
+		}
+	}
+
+	//readback set maxAmp to check validity
+	controlByte_.write(0xA3);
+	usleep(PLC_LOOP_US);
+	triggerRead_.write(0);
+	statusByte_.readWait(&setMaxCurrentA);
+	statusWord_.readWait(&setMaxCurrentA);
+	dataIn_.readWait(&setMaxCurrentA);
+
+	usleep(PLC_LOOP_US);
+
+	controlByte_.write(0xA4);
+	usleep(PLC_LOOP_US);
+	triggerRead_.write(0);
+	statusByte_.readWait(&setMaxCurrentB);
+	statusWord_.readWait(&setMaxCurrentB);
+	dataIn_.readWait(&setMaxCurrentB);
+
+	//lower current to minimum common if found different
+	if (setMaxCurrentA>setMaxCurrentB) {
+		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
+		setMaxCurrentA = setMaxCurrentB;
+		dataOut_.write(setMaxCurrentA);
 		controlByte_.write(0xE3);
+		usleep(PLC_LOOP_US);
 		controlByte_.write(0xA3);
 		usleep(PLC_LOOP_US);
 	}
+	if (setMaxCurrentB>setMaxCurrentA) {
+		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
+		setMaxCurrentB = setMaxCurrentA;
+		dataOut_.write(setMaxCurrentB);
+		controlByte_.write(0xE4);
+		usleep(PLC_LOOP_US);
+		controlByte_.write(0xA4);
+		usleep(PLC_LOOP_US);
+	}
 
-	printf("Setto corrente in axis %d!\n", axisNo_);
+	//check if the writing was unsuccessful
+	setMaxAmp = ((double) setMaxCurrentA)/100.0*fullScaleCurr;
+	if (maxAmp>=0 && abs(setMaxAmp-maxAmp)>0.01) {
+		printf("Error: Failed to write maxCurrent %.2lf vs %.2lf\n", maxAmp, setMaxAmp);
+		return asynError;
+	}
+
+	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
+	if (autoHoldinCurr>=0) {
+		controlByte_.write(0xAC);
+		usleep(PLC_LOOP_US);
+		triggerRead_.write(0);
+		statusByte_.readWait(&setHoldCurr);
+		statusWord_.readWait(&setHoldCurr);
+		dataIn_.readWait(&setHoldCurr);
+
+		if (autoHoldinCurr>setMaxAmp) {
+			printf("Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			autoHoldinCurr = setMaxAmp;
+		}
+		percent = round( autoHoldinCurr / setMaxAmp *100 );
+		if (setHoldCurr!=percent) {
+			dataOut_.write(percent);
+			controlByte_.write(0xEC);
+			usleep(PLC_LOOP_US);
+			controlByte_.write(0xAC);
+			usleep(PLC_LOOP_US);
+		}
+	}
+
+	//R42: Coil current, a > ath (in % to maxAmp)
+	if (highAccCurr>=0) {
+		controlByte_.write(0xAA);
+		usleep(PLC_LOOP_US);
+		triggerRead_.write(0);
+		statusByte_.readWait(&setHighAccCurr);
+		statusWord_.readWait(&setHighAccCurr);
+		dataIn_.readWait(&setHighAccCurr);
+
+		if (highAccCurr>setMaxAmp) {
+			printf("Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			highAccCurr = setMaxAmp;
+		}
+		percent = round( highAccCurr / setMaxAmp *100 );
+		if (setHighAccCurr!=percent) {
+			dataOut_.write(percent);
+			controlByte_.write(0xEA);
+			usleep(PLC_LOOP_US);
+			controlByte_.write(0xAA);
+			usleep(PLC_LOOP_US);
+		}
+	}
+
+	//R43: Coil current, a <= ath (in % to maxAmp)
+	if (lowAccCurr>=0) {
+		controlByte_.write(0xAB);
+		usleep(PLC_LOOP_US);
+		triggerRead_.write(0);
+		statusByte_.readWait(&setLowAccCurr);
+		statusWord_.readWait(&setLowAccCurr);
+		dataIn_.readWait(&setLowAccCurr);
+
+		if (lowAccCurr>setMaxAmp) {
+			printf("Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			lowAccCurr = setMaxAmp;
+		}
+		percent = round( lowAccCurr / setMaxAmp *100 );
+		if (setLowAccCurr!=percent) {
+			dataOut_.write(percent);
+			controlByte_.write(0xEB);
+			usleep(PLC_LOOP_US);
+			controlByte_.write(0xAB);
+			usleep(PLC_LOOP_US);
+		}
+	}
+
+	//remove passcode from register 31
+	controlByte_.write(0x9F);
+	dataOut_.write(0x0); //0x1235 device password
+	controlByte_.write(0xDF);
+	usleep(PLC_LOOP_US);
+	controlByte_.write(0x9F);
+
+	modbusMutex.unlock();
+
+	printf("Currents written to the controller!\n");
 	return asynSuccess;
 }
 
@@ -396,7 +539,6 @@ BeckController * findBeckControllerByName(const char *name) {
 }
 
 extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const char *cmd, const char *cmdArgs) {
-    printf("%s ( %s, %d, %s, %s)\n", "--BeckConfigController", ctrlName, axisRange, cmd, cmdArgs);
     BeckController *ctrl = findBeckControllerByName(ctrlName);
     if (ctrl == NULL) {
     	epicsStdoutPrintf("Cannot find controller %s!\n", ctrlName);
@@ -410,42 +552,37 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
     if (strcmp(cmd, "setCoilCurrents") == 0) {
     	char *maxCurrStr=0;
     	char *autoHoldinCurrStr=0;
-    	char *manHoldingCurrStr=0;
     	char *highAccCurrStr=0;
 		char *lowAccCurrStr=0;
 
-    	int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]", &maxCurrStr,
+    	int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,]", &maxCurrStr,
     			                                          &autoHoldinCurrStr,
-		                                                  &manHoldingCurrStr,
 		                                                  &highAccCurrStr,
 		                                                  &lowAccCurrStr);
-    	printf("setCoilCurrents %d -- %s -- %s -- %s -- %s -- %s\n",nPar,
+    /*	printf("setCoilCurrents %d -- %s -- %s -- %s -- %s \n",nPar,
     																maxCurrStr,
 																	autoHoldinCurrStr,
-																	manHoldingCurrStr,
 																	highAccCurrStr,
-																	lowAccCurrStr);
+																	lowAccCurrStr);*/
 
     	double maxCurr=-1;
     	double autoHoldinCurr=-1;
-    	double manHoldingCurr=-1;
     	double highAccCurr=-1;
 		double lowAccCurr=-1;
 
 		switch (nPar) {
-			case 5: epicsScanDouble(lowAccCurrStr, &lowAccCurr);
-			case 4: epicsScanDouble(highAccCurrStr, &highAccCurr);
-			case 3:	epicsScanDouble(manHoldingCurrStr, &manHoldingCurr);
+			case 4: epicsScanDouble(lowAccCurrStr, &lowAccCurr);
+			case 3: epicsScanDouble(highAccCurrStr, &highAccCurr);
 			case 2: epicsScanDouble(autoHoldinCurrStr, &autoHoldinCurr);
-			case 1: epicsScanDouble(maxCurrStr, &maxCurr);
+			case 1: epicsScanDouble(maxCurrStr, &maxCurr); break;
 			default: {
-				printf ("Wrong number of parameters!\n");
+				printf ("Wrong number of parameters: %d!\n", nPar);
 				return 0;
 			}
 
 		}
 
-    	axis->setCoilCurrent(maxCurr, autoHoldinCurr, manHoldingCurr, highAccCurr, lowAccCurr);
+    	axis->setCoilCurrent(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
     }
     else if (strcmp(cmd, "resetController") ==0 ) {
     	axis->resetController();

@@ -64,7 +64,7 @@ public:
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setPosition(double position);
 //  asynStatus setClosedLoop(bool closedLoop);
-  asynStatus setCoilCurrent(double maxCurr, double autoHoldinCurr, double manHoldingCurr, double highAccCurr, double lowAccCurr);
+  asynStatus setCoilCurrent(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
   asynStatus resetController();
 
 private:
