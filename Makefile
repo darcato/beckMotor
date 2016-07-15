@@ -14,6 +14,7 @@ LIBRARY_IOC = Beck
 # Advanced Control Systems driver support.
 #SRCS += devMCB4B.c drvMCB4B.c
 SRCS += BeckDriver.cpp
+SRCS += BeckPortDriver.cpp
 
 Beck_LIBS += motor asyn
 Beck_LIBS += $(EPICS_BASE_IOC_LIBS)
