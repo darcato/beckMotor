@@ -16,8 +16,8 @@ June 17, 2016
 //#include <epicsThread.h>
 
 #include <asynInt32SyncIO.h>
-#include <asynUInt32Digital.h>
-#include <asynUInt32DigitalSyncIO.h>
+//#include <asynUInt32Digital.h>
+//#include <asynUInt32DigitalSyncIO.h>
 
 #include <epicsStdlib.h>
 #include <dbAccess.h>
@@ -34,8 +34,8 @@ June 17, 2016
 
 static std::vector<BeckController *> _controllers;
 
-BeckController::BeckController(const char *portName, const int numAxis, const char *inModbusPName, const char *outModbusPName, double movingPollPeriod, double idlePollPeriod )
-  :  asynMotorController(portName, numAxis, 0,
+BeckController::BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod )
+  :  asynMotorController(portName, getBeckMaxAddr(beckDriverPName), 0,
                          asynUInt32DigitalMask, // Add asynUInt32Digital interface to read single bits
                          asynUInt32DigitalMask, // Add asynUInt32Digital callbacks to read single bits
                          ASYN_CANBLOCK | ASYN_MULTIDEVICE,
@@ -44,15 +44,13 @@ BeckController::BeckController(const char *portName, const int numAxis, const ch
 {
   BeckAxis *pAxis; //set but not used not to be eliminated by compiler
 
-  inModbusPName_ = (char *) mallocMustSucceed(strlen(inModbusPName)+1, "Malloc failed\n");
-  outModbusPName_ = (char *) mallocMustSucceed(strlen(outModbusPName)+1, "Malloc failed\n");
+  beckDriverPName_ = (char *) mallocMustSucceed(strlen(beckDriverPName)+1, "Malloc failed\n");
 
-  strcpy(inModbusPName_, inModbusPName);
-  strcpy(outModbusPName_, outModbusPName);
+  strcpy(beckDriverPName_, beckDriverPName);
 
   printf("Now create axis\n");
   int i = 0;
-  for (i=0; i<numAxis; i++){
+  for (i=0; i<getBeckMaxAddr(beckDriverPName); i++){
       pAxis = new BeckAxis(this, i);
       printf("Axis n: %d successfully created\n", i);
   }
@@ -74,16 +72,16 @@ BeckAxis* BeckController::getAxis(int axisNo)
 
 void BeckController::report(FILE *fp, int level)
 {
-  fprintf(fp, "Beckoff motor driver %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
+  fprintf(fp, "Beckoff motor controller %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
     this->portName, 1, movingPollPeriod_, idlePollPeriod_);
 
   // Call the base class method
   asynMotorController::report(fp, level);
 }
 
-extern "C" int BeckCreateController(const char *portName, const int numAxis, const char *inModbusPName, const char *outModbusPName, int movingPollPeriod, int idlePollPeriod )
+extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod )
 {
-	BeckController *ctrl = new BeckController(portName, numAxis, inModbusPName, outModbusPName, movingPollPeriod/1000., idlePollPeriod/1000.);
+	BeckController *ctrl = new BeckController(portName, beckDriverPName, movingPollPeriod/1000., idlePollPeriod/1000.);
     printf("Controller %p\n", ctrl);
 	_controllers.push_back(ctrl);
     return(asynSuccess);
@@ -95,52 +93,136 @@ extern "C" int BeckCreateController(const char *portName, const int numAxis, con
 
 BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynMotorAxis(pC, axis),
-		pC_(pC),
-		statusByte_(pC_->inModbusPName_, 3*axis+0, "MODBUS_DATA"),
-		dataIn_(pC_->inModbusPName_, 3*axis+1, "MODBUS_DATA"),
-		statusWord_(pC_->inModbusPName_, 3*axis+2, "MODBUS_DATA"),
-		controlByte_(pC_->outModbusPName_, 3*axis+0, "MODBUS_DATA"),
-		dataOut_(pC_->outModbusPName_, 3*axis+1, "MODBUS_DATA"),
-		controlWord_(pC_->outModbusPName_, 3*axis+2, "MODBUS_DATA"),
-		triggerRead_(pC_->inModbusPName_, 0, "MODBUS_READ")
+		pC_(pC)
 {
-  asynStatus status;
-  static const char *functionName = "BeckAxis::BeckAxis";
+	asynStatus status;
+	static const char *functionName = "BeckAxis::BeckAxis";
 
-  /* Connect to bits */
-  status = pasynUInt32DigitalSyncIO->connect(pC_->inModbusPName_, 3*axis+0, &statusByteBits_, "MODBUS_DATA");
-  if (status) {
-    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff controller\n", functionName);
-  }
+	/* Connect to inputs */
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &statusByte_, "SB");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  status = pasynUInt32DigitalSyncIO->connect(pC_->inModbusPName_, 3*axis+2, &statusWordBits_, "MODBUS_DATA");
-  if (status) {
-    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff controller\n", functionName);
-  }
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &dataIn_, "DI");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  status = pasynUInt32DigitalSyncIO->connect(pC_->outModbusPName_, 3*axis+0, &controlByteBits_, "MODBUS_DATA");
-  if (status) {
-    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff controller\n", functionName);
-  }
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &statusWord_, "SW");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  status = pasynUInt32DigitalSyncIO->connect(pC_->outModbusPName_, 3*axis+2, &controlWordBits_, "MODBUS_DATA");
-  if (status) {
-    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff controller\n", functionName);
-  }
+	/* Connect to outputs */
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &controlByte_, "CB");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  //printf("Interruptions are %d", interruptAccept);
-  setDoubleParam(pC_->motorPosition_, 0);
-  setIntegerParam(pC_->motorStatusDone_, 1);
-  setDoubleParam(pC_->motorVelBase_, 100);
-  setDoubleParam(pC_->motorAccel_, 100);
-  setDoubleParam(pC_->motorVelocity_, 100);
-  setDoubleParam(pC->motorEncoderPosition_, 0);
-  setIntegerParam(pC_->motorStatusDone_, 1);
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &dataOut_, "DO");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  moveDone=true;
-  movePend=false;
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &controlWord_, "CW");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
 
-  controlByte_.write(0x21);
+	/* Connect to registers */
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r0_, "R00");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r1_, "R01");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r2_, "R02");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r3_, "R03");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r7_, "R07");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r8_, "R08");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r31_, "R31");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r35_, "R35");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r36_, "R36");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r38_, "R38");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r39_, "R39");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r40_, "R40");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r42_, "R42");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r43_, "R43");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r44_, "R44");
+	if (status) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+
+
+
+
+	//printf("Interruptions are %d", interruptAccept);
+	setDoubleParam(pC_->motorPosition_, 0);
+	setIntegerParam(pC_->motorStatusDone_, 1);
+	setDoubleParam(pC_->motorVelBase_, 100);
+	setDoubleParam(pC_->motorAccel_, 100);
+	setDoubleParam(pC_->motorVelocity_, 100);
+	setDoubleParam(pC->motorEncoderPosition_, 0);
+	setIntegerParam(pC_->motorStatusDone_, 1);
+
+	moveDone=true;
+	movePend=false;
+
+	//controlByte_.write(0x21);
 
 }
 
@@ -151,53 +233,24 @@ void BeckAxis::report(FILE *fp, int level)
 }
 
 asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
-	modbusMutex.lock();
-	controlByte_.write(0x80); //prevent undesired writings
-	usleep(1);
-
-	dataOut_.write((int) min_velocity);
-	controlByte_.write(0xE6);
-	controlByte_.write(0xA6);
-	usleep(1);
-
-	dataOut_.write((int) max_velocity);
-	controlByte_.write(0xE7);
-	controlByte_.write(0xA7);
-	usleep(1);
-
-	dataOut_.write((int) acceleration);
-	controlByte_.write(0xE8);
-	controlByte_.write(0xA8);
-	usleep(1);
-
-	modbusMutex.unlock();
+	pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
+	pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
+	pasynInt32SyncIO->write(r40_, (int) acceleration, 500);
 	return asynSuccess;
 }
 
 asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double highAccCurr, double lowAccCurr) {
-	int termType = 0;
+	epicsInt32 termType = 0;
 	double fullScaleCurr;
 	int setMaxCurrentA, setMaxCurrentB, setHoldCurr, setHighAccCurr, setLowAccCurr;
 	double setMaxAmp;
 	int percent = -1;
 
-	modbusMutex.lock();
-
-	//write passcode in register 31
-	controlByte_.write(0x9F);
-	dataOut_.write(0x1235); //0x1235 device password
-	controlByte_.write(0xDF);
-	usleep(PLC_LOOP_US);
-	controlByte_.write(0x9F);
+	//write passcode in register 31 to enable writing to static memory
+	pasynInt32SyncIO->write(r31_, 0x1235, 500);
 
 	//read controller code and convert ampere to %
-	controlByte_.write(0x88);
-	usleep(PLC_LOOP_US);
-	triggerRead_.write(0);
-	statusByte_.readWait(&termType);
-	statusWord_.readWait(&termType);
-	dataIn_.readWait(&termType);
-
+	pasynInt32SyncIO->read(r8_, &termType, 500);
 	switch (termType) {
 		case 2531: fullScaleCurr = 1.5; break;
 		case 2541: fullScaleCurr = 5.0;	break;
@@ -210,74 +263,38 @@ asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double
 
 	//R35: Maximum coil current A (in % to fullScale of device)
 	//R36: Maximum coil current B (in % to fullScale of device)
-	if (maxAmp>=0) {
-		controlByte_.write(0xA3);
-		usleep(PLC_LOOP_US);
-		triggerRead_.write(0);
-		statusByte_.readWait(&setMaxCurrentA);
-		statusWord_.readWait(&setMaxCurrentA);
-		dataIn_.readWait(&setMaxCurrentA);
-
-		usleep(PLC_LOOP_US);
-
-		controlByte_.write(0xA4);
-		usleep(PLC_LOOP_US);
-		triggerRead_.write(0);
-		statusByte_.readWait(&setMaxCurrentB);
-		statusWord_.readWait(&setMaxCurrentB);
-		dataIn_.readWait(&setMaxCurrentB);
+	if (maxAmp>=0){
+		pasynInt32SyncIO->read(r35_, &setMaxCurrentA, 500);
+		pasynInt32SyncIO->read(r36_, &setMaxCurrentB, 500);
 
 		if (maxAmp>fullScaleCurr) {
 			printf("Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
 			maxAmp = fullScaleCurr;
 		}
 		percent = round( maxAmp / fullScaleCurr *100 );
-		dataOut_.write(percent);
 		if (setMaxCurrentA!=percent) {
-			controlByte_.write(0xE3);
-			usleep(PLC_LOOP_US);
+			pasynInt32SyncIO->write(r35_, percent, 500);
 		}
 		if (setMaxCurrentB!=percent) {
-			controlByte_.write(0xE4);
-			usleep(PLC_LOOP_US);
+			pasynInt32SyncIO->write(r36_, percent, 500);
 		}
 	}
 
 	//readback set maxAmp to check validity
-	controlByte_.write(0xA3);
-	usleep(PLC_LOOP_US);
-	triggerRead_.write(0);
-	statusByte_.readWait(&setMaxCurrentA);
-	statusWord_.readWait(&setMaxCurrentA);
-	dataIn_.readWait(&setMaxCurrentA);
+	pasynInt32SyncIO->read(r35_, &setMaxCurrentA, 500);
+	pasynInt32SyncIO->read(r36_, &setMaxCurrentB, 500);
 
-	usleep(PLC_LOOP_US);
-
-	controlByte_.write(0xA4);
-	usleep(PLC_LOOP_US);
-	triggerRead_.write(0);
-	statusByte_.readWait(&setMaxCurrentB);
-	statusWord_.readWait(&setMaxCurrentB);
-	dataIn_.readWait(&setMaxCurrentB);
 
 	//lower current to minimum common if found different
 	if (setMaxCurrentA>setMaxCurrentB) {
 		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
 		setMaxCurrentA = setMaxCurrentB;
-		dataOut_.write(setMaxCurrentA);
-		controlByte_.write(0xE3);
-		usleep(PLC_LOOP_US);
-		controlByte_.write(0xA3);
-		usleep(PLC_LOOP_US);
+		pasynInt32SyncIO->write(r35_, setMaxCurrentA, 500);
 	}
 	if (setMaxCurrentB>setMaxCurrentA) {
 		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
 		setMaxCurrentB = setMaxCurrentA;
-		dataOut_.write(setMaxCurrentB);
-		controlByte_.write(0xE4);
-		usleep(PLC_LOOP_US);
-		controlByte_.write(0xA4);
-		usleep(PLC_LOOP_US);
+		pasynInt32SyncIO->write(r36_, setMaxCurrentA, 500);
 	}
 
 	//check if the writing was unsuccessful
@@ -289,35 +306,20 @@ asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double
 
 	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
 	if (autoHoldinCurr>=0) {
-		controlByte_.write(0xAC);
-		usleep(PLC_LOOP_US);
-		triggerRead_.write(0);
-		statusByte_.readWait(&setHoldCurr);
-		statusWord_.readWait(&setHoldCurr);
-		dataIn_.readWait(&setHoldCurr);
-
-		if (autoHoldinCurr>setMaxAmp) {
-			printf("Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
-			autoHoldinCurr = setMaxAmp;
+		pasynInt32SyncIO->read(r44_, &setHoldCurr, 500);
+		if (highAccCurr>setMaxAmp) {
+			printf("Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			highAccCurr = setMaxAmp;
 		}
-		percent = round( autoHoldinCurr / setMaxAmp *100 );
-		if (setHoldCurr!=percent) {
-			dataOut_.write(percent);
-			controlByte_.write(0xEC);
-			usleep(PLC_LOOP_US);
-			controlByte_.write(0xAC);
-			usleep(PLC_LOOP_US);
+		percent = round( highAccCurr / setMaxAmp *100 );
+		if (setHighAccCurr!=percent) {
+			pasynInt32SyncIO->write(r44_, percent, 500);
 		}
 	}
 
 	//R42: Coil current, a > ath (in % to maxAmp)
 	if (highAccCurr>=0) {
-		controlByte_.write(0xAA);
-		usleep(PLC_LOOP_US);
-		triggerRead_.write(0);
-		statusByte_.readWait(&setHighAccCurr);
-		statusWord_.readWait(&setHighAccCurr);
-		dataIn_.readWait(&setHighAccCurr);
+		pasynInt32SyncIO->read(r42_, &setHighAccCurr, 500);
 
 		if (highAccCurr>setMaxAmp) {
 			printf("Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
@@ -325,22 +327,13 @@ asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double
 		}
 		percent = round( highAccCurr / setMaxAmp *100 );
 		if (setHighAccCurr!=percent) {
-			dataOut_.write(percent);
-			controlByte_.write(0xEA);
-			usleep(PLC_LOOP_US);
-			controlByte_.write(0xAA);
-			usleep(PLC_LOOP_US);
+			pasynInt32SyncIO->write(r42_, percent, 500);
 		}
 	}
 
 	//R43: Coil current, a <= ath (in % to maxAmp)
 	if (lowAccCurr>=0) {
-		controlByte_.write(0xAB);
-		usleep(PLC_LOOP_US);
-		triggerRead_.write(0);
-		statusByte_.readWait(&setLowAccCurr);
-		statusWord_.readWait(&setLowAccCurr);
-		dataIn_.readWait(&setLowAccCurr);
+		pasynInt32SyncIO->read(r43_, &setLowAccCurr, 500);
 
 		if (lowAccCurr>setMaxAmp) {
 			printf("Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
@@ -348,22 +341,12 @@ asynStatus BeckAxis::setCoilCurrent(double maxAmp, double autoHoldinCurr, double
 		}
 		percent = round( lowAccCurr / setMaxAmp *100 );
 		if (setLowAccCurr!=percent) {
-			dataOut_.write(percent);
-			controlByte_.write(0xEB);
-			usleep(PLC_LOOP_US);
-			controlByte_.write(0xAB);
-			usleep(PLC_LOOP_US);
+			pasynInt32SyncIO->write(r43_, percent, 500);
 		}
 	}
 
 	//remove passcode from register 31
-	controlByte_.write(0x9F);
-	dataOut_.write(0x0); //0x1235 device password
-	controlByte_.write(0xDF);
-	usleep(PLC_LOOP_US);
-	controlByte_.write(0x9F);
-
-	modbusMutex.unlock();
+	pasynInt32SyncIO->write(r31_, 0, 500);
 
 	printf("Currents written to the controller!\n");
 	return asynSuccess;
@@ -388,132 +371,92 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
     //TODO understand if I need to check for end of movement  //DONE
 
     //TODO register callback to wait end of movement  //DONE
+	printf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
 
-	//This to prevent to put movePend to 1 if cannot move
+	/*//This to prevent to put movePend to 1 if cannot move
 	if (movePend) return asynSuccess;
 
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 
-	modbusMutex.lock();
+	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	int newPos = (relative ? currPos : 0 ) + position;
+	if (!movePend) {
+		printf("NewPos is %d\n", newPos);
+	}
 
-    printf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
+	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
+	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
+	pasynInt32SyncIO->write(dataOut_, 0, 500);
 
-    //stop motor
-    controlByte_.write(0x21);
-
-    //set new position
-    int newPos =  (relative ? currPos : 0 ) + position;
-
-    if (!movePend)
-    	printf("NewPos is %d\n", newPos);
-
-    dataOut_.write(newPos & 0xFFFF);
-    controlByte_.write(0xC2);
-
-    //As long as 0xC2 is written in control byte, everything you write in dataOut is written to R7
-    //so we stop this behaviour by writing the reading command 0x87 in controlbyte
-    controlByte_.write(0x82);
-    usleep(1);
-
-    dataOut_.write((newPos>>16) & 0xFFFF);
-    controlByte_.write(0xC3);
-    controlByte_.write(0x83);
-    usleep(1);
-
-    //put zeroes in data as required
-    dataOut_.write(0x0);
-
-    movePend=true;
-    controlByte_.write(0x25);
-
-    //printf("Movement complete: new position is 0x%x\n\n", newPos);
-    modbusMutex.unlock();
-    return asynSuccess;
+	movePend=true;
+	pasynInt32SyncIO->write(controlByte_, 0x25, 500);*/
+	return asynSuccess;
 }
 
 asynStatus BeckAxis::home(double min_velocity, double max_velocity, double acceleration, int forwards)
 {
-   /* int outVal = 0x520;
-    pasynInt32SyncIO->write(dataOut_, outVal, 500);
-    outVal = 0xC7;
-    pasynInt32SyncIO->write(controlByte_, outVal, 500);
-    outVal = 0;
-    pasynInt32SyncIO->write(dataOut_, outVal, 500);
-    outVal = 0x5;
-    pasynInt32SyncIO->write(controlByte_, outVal, 500);
-
-    endMove();*/
+/*  TODO set velo acc & direction
+    pasynInt32SyncIO->write(r7_, 0x520, 500);
+    pasynInt32SyncIO->write(dataOut_, 0, 500);
+    pasynInt32SyncIO->write(controlByte_, 0x5, 500);*/
 
     return asynSuccess;
 }
 asynStatus BeckAxis::poll(bool *moving)
 {
-	if (interruptAccept){
-	    epicsInt32 statusByte=0;
-	    epicsInt32 dataIn=0;
-	    epicsInt32 statusWord=0;
-	    bool lhigh, llow;
-	    bool regAccess, error, warning, idle, ready;
-	    epicsInt32 loadAngle;
+	printf("Polling\n");
 
-	    modbusMutex.lock();
-	    controlByte_.write(0x80);
-	    //usleep(PLC_LOOP_US);
-	    triggerRead_.write(0);
-	    statusByte_.readWait(&statusByte); //to be overwritten
-	    statusWord_.readWait(&statusWord); //to be overwritten
-	    dataIn_.readWait(&dataIn);
-	    currPos = dataIn;
+	/*epicsInt32 pLow, pHigh;
+	epicsInt32 statusByte, statusWord;
+	bool lHigh, lLow;
+	bool regAccess, error, warning, idle, ready;
+	epicsInt32 loadAngle;
 
-	    controlByte_.write(0x81);
-	    //usleep(PLC_LOOP_US);
-	    triggerRead_.write(0);
-	    statusByte_.readWait(&statusByte); //to be overwritten
-	    statusWord_.readWait(&statusWord);
-	    dataIn_.readWait(&dataIn);
-	    currPos += dataIn<<16;
+	//update position
+	pasynInt32SyncIO->read(r0_, pLow, 500);
+	pasynInt32SyncIO->read(r1_, pHigh, 500);
+	currPos = pLow + pHigh<<16;
+	setDoubleParam(pC_->motorPosition_, currPos);
 
-	    setDoubleParam(pC_->motorPosition_, currPos);
+	//update limit switches
+	pasynInt32SyncIO->read(statusWord_, &statusWord, 500);
+	lHigh = statusWord & 0x1;
+	lLow = statusWord & 0x2;
+	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
+	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
-	    lhigh = statusWord & 0x1;
-	   	llow = statusWord & 0x2;
-	   	setIntegerParam(pC_->motorStatusHighLimit_, lhigh);
-	   	setIntegerParam(pC_->motorStatusLowLimit_, llow);
+	//set moveDone flag
+	moveDone = movePend ? ((statusWord & 0x8) || lhigh || llow) : true;
+	*moving = moveDone ? false : true;
+	setIntegerParam(pC_->motorStatusDone_, moveDone);
 
-		moveDone = movePend ? ((statusWord & 0x8) || lhigh || llow) : true;
-		if (moveDone) {
-			controlByte_.write(0x21);
-			movePend = false;
-		}
-		else{
-			controlByte_.write(0x25);
-		}
-		usleep(1);
-		triggerRead_.write(0);
-	    statusByte_.readWait(&statusByte);
-	    dataIn_.readWait(&dataIn);
-	    statusWord_.readWait(&statusWord);
-	    modbusMutex.unlock();
-
-	    regAccess = statusByte & 0x80;
-		error = statusByte & 0x40;
-		setIntegerParam(pC_->motorStatusProblem_, error);
-		warning = statusByte & 0x20;
-		idle = statusByte & 0x10;
-		//printf("statusByte 0x%x\t !idle is %d\n",statusByte,!idle);
-		loadAngle = statusByte & 0xE;
-		ready = statusByte & 0x1;
-		setIntegerParam(pC_->motorStatusPowerOn_, ready);
-
-		*moving = moveDone ? false : true;
-		setIntegerParam(pC_->motorStatusDone_, moveDone);
-
-		//printf("Moving: %d\t MoveDone: %d\t SwL: %d\t SwH: %d\n", movePend, moveDone, llow, lhigh);
-		callParamCallbacks();
+	if (moveDone) {
+		pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+		movePend = false;
 	}
-	else {
-		printf("Interruptions not yet allowed..\n");
+	else{
+		pasynInt32SyncIO->write(controlByte_, 0x25, 500);
 	}
+
+	//set status
+	regAccess = statusByte & 0x80;
+	error = statusByte & 0x40;
+	setIntegerParam(pC_->motorStatusProblem_, error);
+	warning = statusByte & 0x20;
+	idle = statusByte & 0x10;
+	loadAngle = statusByte & 0xE;
+	ready = statusByte & 0x1;
+	setIntegerParam(pC_->motorStatusPowerOn_, ready);
+
+	//printf("Moving: %d\t MoveDone: %d\t SwL: %d\t SwH: %d\n", movePend, moveDone, llow, lhigh);
+	callParamCallbacks();*/
+
+
+
+
+	epicsInt32 value=0;
+	pasynInt32SyncIO->read(controlByte_, &value, 500 );
+	printf("Control Byte is 0x%04x\n", value);
 
     return asynSuccess;
 }
@@ -605,11 +548,9 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
  * Code for iocsh registration
  */
 static const iocshArg BeckCreateControllerArg0 = {"Port name", iocshArgString};
-static const iocshArg BeckCreateControllerArg1 = {"Number of consecutive controllers", iocshArgInt};
-static const iocshArg BeckCreateControllerArg2 = {"Modbus INPUT port name", iocshArgString};
-static const iocshArg BeckCreateControllerArg3 = {"Modbus OUTPUT port name", iocshArgString};
-static const iocshArg BeckCreateControllerArg4 = {"Moving poll period (ms)", iocshArgInt};
-static const iocshArg BeckCreateControllerArg5 = {"Idle poll period (ms)", iocshArgInt};
+static const iocshArg BeckCreateControllerArg1 = {"Driver port name", iocshArgString};
+static const iocshArg BeckCreateControllerArg2 = {"Moving poll period (ms)", iocshArgInt};
+static const iocshArg BeckCreateControllerArg3 = {"Idle poll period (ms)", iocshArgInt};
 
 static const iocshArg BeckConfigControllerArg0 = {"Controller Name", iocshArgString};
 static const iocshArg BeckConfigControllerArg1 = {"Axis Number", iocshArgInt};
@@ -619,19 +560,17 @@ static const iocshArg BeckConfigControllerArg3 = {"CommandArgs", iocshArgString}
 static const iocshArg * const BeckCreateControllerArgs[] = {&BeckCreateControllerArg0,
                                                             &BeckCreateControllerArg1,
                                                             &BeckCreateControllerArg2,
-                                                            &BeckCreateControllerArg3,
-                                                            &BeckCreateControllerArg4,
-                                                            &BeckCreateControllerArg5};
+                                                            &BeckCreateControllerArg3};
 static const iocshArg * const BeckConfigControllerArgs[] = {&BeckConfigControllerArg0,
                                                             &BeckConfigControllerArg1,
                                                             &BeckConfigControllerArg2,
                                                             &BeckConfigControllerArg3};
 
-static const iocshFuncDef BeckCreateControllerDef = {"BeckCreateController", 6, BeckCreateControllerArgs};
+static const iocshFuncDef BeckCreateControllerDef = {"BeckCreateController", 4, BeckCreateControllerArgs};
 static const iocshFuncDef BeckConfigControllerDef = {"BeckConfigController", 4, BeckConfigControllerArgs};
 
 static void BeckCreateControllerCallFunc(const iocshArgBuf *args) {
-	BeckCreateController(args[0].sval, args[1].ival, args[2].sval, args[3].sval, args[4].ival, args[5].ival);
+	BeckCreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival);
 }
 static void BeckConfigControllerCallFunc(const iocshArgBuf *args) {
 	BeckConfigController(args[0].sval, args[1].ival, args[2].sval, args[3].sval);

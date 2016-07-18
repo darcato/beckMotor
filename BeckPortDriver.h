@@ -4,6 +4,7 @@
 #include <vector>
 #include <epicsEvent.h>
 
+int getBeckMaxAddr(const char *portName);
 
 /**
  * -------------------------------------------------
@@ -61,13 +62,16 @@ protected:
 
 	//user to trigger an immediate reading of all the input modbus port, with each reagister updated
 	asynInt32Client triggerReadIn_;
+	asynInt32Client triggerReadOut_;
 	//call readWait on this to wait for new data to be read by modbusIO
 	asynInt32ClientSyncIO newDataIn_;
+	asynInt32ClientSyncIO newDataOut_;
 
 public:
 	BeckPortDriver(const char *portName, int nCtrl, const char *inModbusPort, const char *outModbusPort);
 	asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
 	asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
+	asynStatus drvUserCreate(asynUser *pasynUser, const char *drvInfo, const char **pptypeName, size_t *psize);
 
 private:
 	asynStatus writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 value);
