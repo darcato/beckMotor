@@ -81,21 +81,21 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value)
 	getAddress(pasynUser, &axis);
 
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		printf("Read Register %d\n", pasynUser->reason-roffset);
+		//printf("Read Register %d\n", pasynUser->reason-roffset);
 		return readReg(pasynUser->reason-roffset, axis, value);
 	}
 
 	if (pasynUser->reason == statusByteIndx_){
 		readProc(statusByte_[axis], 1, value);
-		printf("Read Status Byte - 0x%x\n", *value);
+		//printf("Read Status Byte - 0x%x\n", *value);
 
 	} else if (pasynUser->reason == dataInIndx_){
 		readProc(dataIn_[axis], 1, value);
-		printf("Read DataIn - 0x%x\n", *value);
+		//printf("Read DataIn - 0x%x\n", *value);
 
 	} else if (pasynUser->reason == statusWordIndx_){
 		readProc(statusWord_[axis], 1, value);
-		printf("Read Status Word - 0x%x\n", *value);
+		//printf("Read Status Word - 0x%x\n", *value);
 
 	} else
 		return asynSuccess;
@@ -111,7 +111,7 @@ asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value)
 	getAddress(pasynUser, &axis);
 
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		printf("Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
+		//printf("Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
 		return writeReg(pasynUser->reason-roffset, axis, value);
 	}
 
@@ -125,15 +125,15 @@ asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value)
 		return asynSuccess;
 
 	} else if (pasynUser->reason == controlByteIndx_){
-		printf("Write Control Byte - 0x%x\n", value);
+		//printf("Write Control Byte - 0x%x\n", value);
 		writeProc(controlByte_[axis], value);
 
 	} else if (pasynUser->reason == dataOutIndx_){
-		printf("Write DataOut - 0x%x\n", value);
+		//printf("Write DataOut - 0x%x\n", value);
 		writeProc(dataOut_[axis], value);
 
 	} else if (pasynUser->reason == controlWordIndx_){
-		printf("Write Control Word - 0x%x\n", value);
+		//printf("Write Control Word - 0x%x\n", value);
 		writeProc(controlWord_[axis], value);
 
 	} else {
@@ -161,7 +161,7 @@ asynStatus BeckPortDriver::writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32
 			return asynSuccess;
 	} while (k++ <= MAX_TRY);
 
-	printf("Cannot correctly write %d in register %d of axis n: %d - readback: %d\n", value, regN, axis, readbackValue);
+	printf("Axis %d: Cannot correctly write [%d=0x%x] in register %d - Value in hardware: %d\n", axis, value, value, regN, readbackValue);
 	return asynError;
 }
 
@@ -186,7 +186,7 @@ asynStatus BeckPortDriver::readProc(asynInt32Client *modbusReg, bool in, epicsIn
 		triggerReadIn_.write(0);
 		newDataIn_.readWait(value);
 	} else {
-		printf("Warning, interruptions not allowed... skipping reading!\n");
+		printf("Warning, interruptions not yet allowed... skipping reading!\n");
 	}
 	return modbusReg->read(value);
 

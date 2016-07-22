@@ -31,7 +31,7 @@ public:
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setClosedLoop(bool closedLoop);
   asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
-  asynStatus initHomingParams(int refPosition, double speedToHome, double speedFromHome, double emergencyAccl);
+  asynStatus initHomingParams(int refPosition, bool NCcontacts, double speedToHome, double speedFromHome, double emergencyAccl);
   asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
   asynStatus hardReset();
   asynStatus softReset();
@@ -97,6 +97,7 @@ friend class BeckController;
 class epicsShareClass BeckController : public asynMotorController {
 protected:
   char *beckDriverPName_;
+  epicsMutex modbusMutex;
 
 
 public:
