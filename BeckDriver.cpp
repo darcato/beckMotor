@@ -696,11 +696,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
-	//set moveDone flag
-	/*moveDone = movePend ? ((statusWord & 0x8) || lHigh || lLow) : true;
-	*moving = moveDone ? false : true;
-	setIntegerParam(pC_->motorStatusDone_, moveDone);*/
-	moveDone=!movePend;
+	//prepare environment for reading status
 	pC_->modbusMutex.lock();
 	if (moveDone) {
 		pasynInt32SyncIO->write(controlByte_, 0x21, 500);
@@ -718,15 +714,14 @@ asynStatus BeckAxis::poll(bool *moving) {
 	error = statusByte & 0x40;
 	setIntegerParam(pC_->motorStatusProblem_, error);
 	warning = statusByte & 0x20;
-	idle = statusByte & 0x10;
-	movePend = !idle;
-	*moving = idle;
-	setIntegerParam(pC_->motorStatusDone_, !movePend);
+	moveDone = statusByte & 0x10;
+	movePend = !moveDone;
+	*moving = moveDone;
+	setIntegerParam(pC_->motorStatusDone_, moveDone);
 	loadAngle = statusByte & 0xE;
 	ready = statusByte & 0x1;
 	setIntegerParam(pC_->motorStatusPowerOn_, ready);
 
-	//printf("Moving: %d\t MoveDone: %d\t SwL: %d\t SwH: %d\n", movePend, moveDone, llow, lhigh);
 	callParamCallbacks();
 
 	return asynSuccess;
