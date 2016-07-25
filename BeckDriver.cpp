@@ -10,6 +10,7 @@ June 17, 2016
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <sstream>
 //#include <stdlib.h>
 
 #include <iocsh.h>
@@ -292,6 +293,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 
 	moveDone=true;
 	movePend=false;
+	limitSwitchDownIsInputOne = 0;
 
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 
@@ -395,7 +397,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		}
 		percent = round( autoHoldinCurr / setMaxAmp *100 );
 		if (setHoldCurr!=percent) {
-			printf("-R44 0x%04x -> 0x%04x: auto holding current (%)\n", setHoldCurr, percent);
+			printf("-R44 0x%04x -> 0x%04x: auto holding current (%%)\n", setHoldCurr, percent);
 			pasynInt32SyncIO->write(r44_, percent, 500);
 		}
 	}
@@ -410,7 +412,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		}
 		percent = round( highAccCurr / setMaxAmp *100 );
 		if (setHighAccCurr!=percent) {
-			printf("-R42 0x%04x -> 0x%04x: coil current a>ath (%)\n", setHighAccCurr, percent);
+			printf("-R42 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setHighAccCurr, percent);
 			pasynInt32SyncIO->write(r42_, percent, 500);
 		}
 	}
@@ -425,7 +427,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		}
 		percent = round( lowAccCurr / setMaxAmp *100 );
 		if (setLowAccCurr!=percent) {
-			printf("-R43 0x%04x -> 0x%04x: coil current a>ath (%)\n", setLowAccCurr, percent);
+			printf("-R43 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setLowAccCurr, percent);
 			pasynInt32SyncIO->write(r43_, percent, 500);
 		}
 	}
@@ -441,7 +443,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
  * To be called by shell command
  * Set parameters for the homing procedure
  */
-asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, double speedToHome, double speedFromHome, double emergencyAccl){
+asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl){
 	printf("-%s(%d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, speedToHome, speedFromHome, emergencyAccl);
 	epicsInt32 oldValue, featureReg;
 	pasynInt32SyncIO->read(r55_, &oldValue, 500);
@@ -499,6 +501,10 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, double s
 		pasynInt32SyncIO->write(r50_, (int) emergencyAccl, 500);
 	}
 
+	if (homeAtStartup!=0) {
+		home(100, 500, 1000, (homeAtStartup>0) ? 1 : 0);
+	}
+	limitSwitchDownIsInputOne = lsDownOne;
 	return asynSuccess;
 }
 
@@ -627,15 +633,50 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 
-	//pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	//update position
+	epicsInt32 pLow, pHigh;
+	pasynInt32SyncIO->read(r0_, &pLow, 500);
+	pasynInt32SyncIO->read(r1_, &pHigh, 500);
+	currPos = pLow + (pHigh<<16);
 	int newPos = (relative ? currPos : 0 ) + position;
+	if (newPos==currPos) return asynSuccess;
 
+	epicsInt32 goCmd = 0x25;
+	if (lLow || lHigh) {
+		//if first movement you are unlucky
+		//we must assume the limit switches are well configured with initHomingParams (.., lsDownOne, ..)
+		if (lastDir == 0){
+			lastDir = lHigh ? 1 : -1;
+		}
+		if (newPos*lastDir > currPos*lastDir) {
+			printf("Already at limit switch in %s direction!\n", (lastDir>0) ? "positive" : "negative");
+			return asynSuccess;
+		} else {
+			goCmd = 0x5;
+		}
+	}
+
+	lastDir = (newPos-currPos) / abs(newPos-currPos);
+
+	//move of minimum movement without caring of limit switches
+	//to enable movements if a limit switch was toggled
+	int middlePos = currPos + (int) lastDir;
+	//printf("Going to %d\n", middlePos);
+	pasynInt32SyncIO->write(r2_, middlePos & 0xFFFF, 500);
+	pasynInt32SyncIO->write(r3_, (middlePos>>16) & 0xFFFF, 500);
+	pasynInt32SyncIO->write(dataOut_, 0, 500);
+	movePend=true;
+	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+	pasynInt32SyncIO->write(controlByte_, 0x5, 500);
+	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+
+	//move to desired position checking limit switches
+	//printf("Going to %d\n", newPos);
 	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
 	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
 
-	movePend=true;
-	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
+	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
 	return asynSuccess;
 }
 
@@ -657,7 +698,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 	/* Clear bits that are clear in the value and set in the mask */
 	featureReg  &= (forwards | ~0x1);
 	if (featureReg!=oldValue) {
-		printf("-FeatureReg2 0x%04x -> 0x%04x: idle active\n", oldValue, featureReg);
+		printf("-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", oldValue, featureReg);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynInt32SyncIO->write(r52_, featureReg, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
@@ -675,12 +716,11 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
  * Poller to update motor status on the record
  */
 asynStatus BeckAxis::poll(bool *moving) {
-	//printf("Polling\n");
+	//TODO: invert limit switches and general movement by a setting
 
 	epicsInt32 pLow, pHigh;
 	epicsInt32 statusByte, statusWord;
-	bool lHigh, lLow;
-	bool regAccess, error, warning, idle, ready;
+	bool regAccess, error, warning, ready;
 	epicsInt32 loadAngle;
 
 	//update position
@@ -691,14 +731,21 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 	//update limit switches
 	pasynInt32SyncIO->read(statusWord_, &statusWord, 500);
-	lHigh = statusWord & 0x1;
-	lLow = statusWord & 0x2;
+
+	if (limitSwitchDownIsInputOne) {
+		lHigh = statusWord & 0x2;
+		lLow = statusWord & 0x1;
+	}else {
+		lHigh = statusWord & 0x1;
+		lLow = statusWord & 0x2;
+	}
+
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
 	//prepare environment for reading status
 	pC_->modbusMutex.lock();
-	if (moveDone) {
+	if (!movePend) {
 		pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 		movePend = false;
 	}
@@ -745,17 +792,60 @@ BeckController * findBeckControllerByName(const char *name) {
 	return 0;
 }
 
-extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const char *cmd, const char *cmdArgs) {
+extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const char *cmd, const char *cmdArgs) {
 	BeckController *ctrl = findBeckControllerByName(ctrlName);
 	if (ctrl == NULL) {
 		epicsStdoutPrintf("Cannot find controller %s!\n", ctrlName);
 		return 0;
 	}
-	BeckAxis *axis = ctrl->getAxis(axisRange);
-	if (axis == NULL) {
-		epicsStdoutPrintf("Cannot find axis %d!\n", axisRange);
+
+	int axisNumbers[1000];
+	int axisListLen=0, i=0;
+	const char s[2] = ",";
+	char *token;
+
+	// First: parse strings separated by a semicolon
+	token = strtok(axisRange, s);
+	while( token != NULL )
+	{
+		// Second: the string may be a range (ex: 3-5) or a single number
+		int begin, end;
+		int nParsed = sscanf(token, "%d-%d", &begin, &end);
+
+		//If it is a range put in a list all the elements, else only the single number
+		if(nParsed>1){
+			for (i=0; i<=end-begin; i++) {
+				axisNumbers[axisListLen+i] = begin +i;
+			}
+			axisListLen += end-begin+1;
+		} else {
+			axisNumbers[axisListLen++] = begin;
+		}
+		token = strtok(NULL, s);
 	}
 
+	printf("Interested axis: ");
+	for (i=0; i<axisListLen; i++) {
+		printf("%d ", axisNumbers[i]);
+	}
+	printf("\n");
+
+	//create a beckAxis instance for each axis in list
+	int k=0;
+	BeckAxis *axis[axisListLen];
+	for (i=0; i<axisListLen; i++) {
+		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
+		if (tmp != NULL) {
+			axis[i-k] = tmp;
+		}
+		else {
+			epicsStdoutPrintf("Cannot find axis %d!\n", axisNumbers[i]);
+			k++;
+		}
+	}
+	axisListLen -= k;
+
+	//Now parse commands, and apply to list of axis
 	if (strcmp(cmd, "initCurrents") == 0) {
 		char *maxCurrStr=0;
 		char *autoHoldinCurrStr=0;
@@ -783,13 +873,20 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
 			}
 
 		}
-		axis->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
+
+		for (i=0; i<axisListLen; i++){
+			axis[i]->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
+		}
 	}
 	else if (strcmp(cmd, "softReset") ==0 ) {
-		axis->softReset();
+		for (i=0; i<axisListLen; i++){
+			axis[i]->softReset();
+		}
 	}
 	else if (strcmp(cmd, "hardReset") ==0 ) {
-			axis->hardReset();
+		for (i=0; i<axisListLen; i++){
+			axis[i]->hardReset();
+		}
 	}
 	else if (strcmp(cmd, "init") ==0 ) {
 		char *encoderStr=0;
@@ -808,28 +905,40 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
 				return 0;
 			}
 		}
-		axis->init((bool) encoder, (bool) watchdog);
+
+		for (i=0; i<axisListLen; i++){
+			axis[i]->init((bool) encoder, (bool) watchdog);
+		}
+
 	}
 	else if (strcmp(cmd, "initHomingParams") ==0 ) {
 		char *refPositionStr;
 		char *NCcontactsStr;
+		char *lsDownOneStr;
+		char *homeAtStartupStr;
 		char *speedToHomeStr;
 		char *speedFromHomeStr;
 		char *emergencyAcclStr;
 
-		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]",&refPositionStr,
-																		&NCcontactsStr,
-																		&speedToHomeStr,
-																		&speedFromHomeStr,
-																		&emergencyAcclStr);
+		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]",  &refPositionStr,
+																						&NCcontactsStr,
+																						&lsDownOneStr,
+																						&homeAtStartupStr,
+																						&speedToHomeStr,
+																						&speedFromHomeStr,
+																						&emergencyAcclStr);
 		double refPosition = 0;
 		double NCcontacts = 0;
+		double lsDownOne = 0;
+		double homeAtStartup = 0;
 		double speedToHome = -1, speedFromHome = -1, emergencyAccl = -1;
 
 		switch (nPar) {
-			case 5: epicsScanDouble(emergencyAcclStr, &emergencyAccl);
-			case 4: epicsScanDouble(speedFromHomeStr, &speedFromHome);
-			case 3: epicsScanDouble(speedToHomeStr, &speedToHome);
+			case 7: epicsScanDouble(emergencyAcclStr, &emergencyAccl);
+			case 6: epicsScanDouble(speedFromHomeStr, &speedFromHome);
+			case 5: epicsScanDouble(speedToHomeStr, &speedToHome);
+			case 4: epicsScanDouble(homeAtStartupStr, &homeAtStartup);
+			case 3: epicsScanDouble(lsDownOneStr, &lsDownOne);
 			case 2: epicsScanDouble(NCcontactsStr, &NCcontacts);
 			case 1: epicsScanDouble(refPositionStr, &refPosition); break;
 			default: {
@@ -837,7 +946,10 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
 				return 0;
 			}
 		}
-		axis->initHomingParams((int) refPosition, (bool) NCcontacts, speedToHome, speedFromHome, emergencyAccl);
+
+		for (i=0; i<axisListLen; i++){
+			axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
+		}
 	}
 	else if (strcmp(cmd, "initStepResolution") ==0 ) {
 		char *microstepPerStepStr;
@@ -856,12 +968,15 @@ extern "C" int BeckConfigController(const char *ctrlName, int axisRange, const c
 				return 0;
 			}
 		}
-		axis->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
+
+		for (i=0; i<axisListLen; i++){
+			axis[i]->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
+		}
 	}
 	else {
 		epicsStdoutPrintf("BeckConfigController: Command \"%s\" not found!\n", cmd);
 	}
-	//ADD: set/getMicrostep - Encoder related fields - referencing position
+	//ADD: Encoder related fields
 	return(asynSuccess);
 }
 
@@ -881,7 +996,7 @@ static const iocshArg BeckCreateControllerArg2 = {"Moving poll period (ms)", ioc
 static const iocshArg BeckCreateControllerArg3 = {"Idle poll period (ms)", iocshArgInt};
 
 static const iocshArg BeckConfigControllerArg0 = {"Controller Name", iocshArgString};
-static const iocshArg BeckConfigControllerArg1 = {"Axis Number", iocshArgInt};
+static const iocshArg BeckConfigControllerArg1 = {"Axis Range", iocshArgString};
 static const iocshArg BeckConfigControllerArg2 = {"Command", iocshArgString};
 static const iocshArg BeckConfigControllerArg3 = {"CommandArgs", iocshArgString};
 
@@ -901,7 +1016,7 @@ static void BeckCreateControllerCallFunc(const iocshArgBuf *args) {
 	BeckCreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival);
 }
 static void BeckConfigControllerCallFunc(const iocshArgBuf *args) {
-	BeckConfigController(args[0].sval, args[1].ival, args[2].sval, args[3].sval);
+	BeckConfigController(args[0].sval, args[1].sval, args[2].sval, args[3].sval);
 }
 
 static void BeckRegister(void) {
@@ -911,3 +1026,6 @@ static void BeckRegister(void) {
 extern "C" {
 	epicsExportRegistrar(BeckRegister);
 }
+
+
+//TODO:reset errors

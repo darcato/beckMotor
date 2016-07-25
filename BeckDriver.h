@@ -31,7 +31,7 @@ public:
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setClosedLoop(bool closedLoop);
   asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
-  asynStatus initHomingParams(int refPosition, bool NCcontacts, double speedToHome, double speedFromHome, double emergencyAccl);
+  asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl);
   asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
   asynStatus hardReset();
   asynStatus softReset();
@@ -78,8 +78,9 @@ private:
 
   //a flag to indicate end of movement
   bool moveDone, movePend;
-  double currPos;
-  //double accl, velo, minVelo;
+  double currPos, lastDir;
+  bool lHigh, lLow;
+  bool limitSwitchDownIsInputOne;
 
   //util methods
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
