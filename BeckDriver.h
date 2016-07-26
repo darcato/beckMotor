@@ -38,6 +38,7 @@ public:
   asynStatus init(bool encoder, bool watchdog);
 
 private:
+  asynStatus updateCurrentPosition();
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
                                    *   Abbreviated because it is used very frequently */
 
@@ -77,7 +78,7 @@ private:
   asynUser *r58_;
 
   //a flag to indicate end of movement
-  bool moveDone, movePend;
+  bool movePend;
   double currPos, lastDir;
   bool lHigh, lLow;
   bool limitSwitchDownIsInputOne;

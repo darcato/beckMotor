@@ -33,11 +33,9 @@ int getBeckMaxAddr(const char *portName) {
 
 
 BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inModbusPort, const char *outModbusPort)
-	: asynPortDriver( portName, nAxis, KL2541_N_REG+6, asynInt32Mask | asynDrvUserMask, asynInt32Mask, ASYN_CANBLOCK | ASYN_MULTIDEVICE, 1, 0, 0),
+	: asynPortDriver( portName, nAxis, KL2541_N_REG+6, asynInt32Mask | asynUInt32DigitalMask | asynDrvUserMask, asynInt32Mask | asynUInt32DigitalMask, ASYN_CANBLOCK | ASYN_MULTIDEVICE, 1, 0, 0),
 	  triggerReadIn_(inModbusPort, 0, "MODBUS_READ"),
-	  triggerReadOut_(outModbusPort, 0, "MODBUS_READ"),
-	  newDataIn_(inModbusPort, 0, "MODBUS_DATA"),
-	  newDataOut_(outModbusPort, 0, "MODBUS_DATA")
+	  newDataIn_(inModbusPort, 0, "MODBUS_DATA")
 {
 	char name[10];
 	int tmp;
@@ -64,18 +62,18 @@ BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inMo
 		controlByte_.push_back(new asynInt32Client(outModbusPort, i*3+0, "MODBUS_DATA"));
 		dataOut_.push_back(new asynInt32Client(outModbusPort, i*3+1, "MODBUS_DATA"));
 		controlWord_.push_back(new asynInt32Client(outModbusPort, i*3+2, "MODBUS_DATA"));
+
+		controlByteInitialized_.push_back(false);
+		dataOutInitialized_.push_back(false);
+		controlWordInitialized_.push_back(false);
+
+		controlByteValue_.push_back(0);
+		dataOutValue_.push_back(0);
+		controlWordValue_.push_back(0);
 	}
 }
 
-
-asynStatus BeckPortDriver::drvUserCreate(asynUser *pasynUser, const char *drvInfo, const char **pptypeName, size_t *psize) {
-	//printf("------------Calling drvUserCreate(user: %p, drvInfo: %s, typeName: %s, size: %d\n", pasynUser, drvInfo, *pptypeName, *psize);
-
-	return asynPortDriver::drvUserCreate(pasynUser, drvInfo, pptypeName, psize);
-}
-
-asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value)
-{
+asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 	//printf("readInt32 with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
@@ -83,64 +81,134 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value)
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
 		//printf("Read Register %d\n", pasynUser->reason-roffset);
 		return readReg(pasynUser->reason-roffset, axis, value);
-	}
 
-	if (pasynUser->reason == statusByteIndx_){
-		readProc(statusByte_[axis], 1, value);
+	} else if (pasynUser->reason == statusByteIndx_){
+		return readProc(statusByte_[axis], 1, value);
 		//printf("Read Status Byte - 0x%x\n", *value);
 
 	} else if (pasynUser->reason == dataInIndx_){
-		readProc(dataIn_[axis], 1, value);
+		return readProc(dataIn_[axis], 1, value);
 		//printf("Read DataIn - 0x%x\n", *value);
 
 	} else if (pasynUser->reason == statusWordIndx_){
-		readProc(statusWord_[axis], 1, value);
+		return readProc(statusWord_[axis], 1, value);
 		//printf("Read Status Word - 0x%x\n", *value);
 
-	} else
-		return asynSuccess;
+	} else if (pasynUser->reason == controlByteIndx_){
+		if (controlByteInitialized_[axis]) {
+			*value = controlByteValue_[axis];
+			return asynSuccess;
+		} else {
+			asynStatus status;
+			status = controlByte_[axis]->read(value);
+			if (status == asynSuccess) {
+				controlByteInitialized_[axis] = true;
+				printf("controlByte initialized with value 0x%04x\n", *value);
+			}
+			return status;
+		}
 
-	return asynSuccess;
+	} else if (pasynUser->reason == dataOutIndx_){
+		if (dataOutInitialized_[axis]) {
+			*value = dataOutValue_[axis];
+			return asynSuccess;
+		} else {
+			asynStatus status;
+			status = dataOut_[axis]->read(value);
+			if (status == asynSuccess) {
+				dataOutInitialized_[axis] = true;
+				printf("dataOut initialized with value 0x%04x\n", *value);
+			}
+			return status;
+		}
 
+	} else if (pasynUser->reason == controlWordIndx_){
+		if (controlWordInitialized_[axis]) {
+			*value = controlWordValue_[axis];
+			return asynSuccess;
+		} else {
+			asynStatus status;
+			status = controlWord_[axis]->read(value);
+			if (status == asynSuccess) {
+				controlWordInitialized_[axis] = true;
+				printf("controlWord initialized with value 0x%04x\n", *value);
+			}
+			return status;
+		}
+
+	} else {
+		printf("Error: Wrong reason!\n");
+		return asynError;
+	}
 }
 
-asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value)
-{
-	//printf("writeInt32\n");
+asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value) {
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
+	//printf("writeInt32 with value 0x%04x %i\n", value, axis);
 
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
 		//printf("Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
 		return writeReg(pasynUser->reason-roffset, axis, value);
-	}
-
-	if (pasynUser->reason == statusByteIndx_){
-		return asynSuccess;
-
-	} else if (pasynUser->reason == dataInIndx_){
-		return asynSuccess;
-
-	} else if (pasynUser->reason == statusWordIndx_){
-		return asynSuccess;
 
 	} else if (pasynUser->reason == controlByteIndx_){
 		//printf("Write Control Byte - 0x%x\n", value);
-		writeProc(controlByte_[axis], value);
+		controlByteValue_[axis] = value;
+		controlByteInitialized_[axis] = true;
+		return writeProc(controlByte_[axis], value);
 
 	} else if (pasynUser->reason == dataOutIndx_){
 		//printf("Write DataOut - 0x%x\n", value);
-		writeProc(dataOut_[axis], value);
+		dataOutValue_[axis] = value;
+		dataOutInitialized_[axis] = true;
+		return writeProc(dataOut_[axis], value);
 
 	} else if (pasynUser->reason == controlWordIndx_){
 		//printf("Write Control Word - 0x%x\n", value);
-		writeProc(controlWord_[axis], value);
+		controlWordValue_[axis] = value;
+		controlWordInitialized_[axis] = true;
+		return writeProc(controlWord_[axis], value);
 
 	} else {
-		printf("Error: Unknown reason!\n");
+		printf("Error: Wrong reason!\n");
 		return asynError;
 	}
+}
+
+
+asynStatus BeckPortDriver::readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask) {
+	//printf("readUInt32Digital with user %p, reason %d and mask 0x%04x\n", pasynUser, pasynUser->reason, mask);
+
+	epicsInt32 rawValue;
+	asynStatus status;
+
+	status = readInt32(pasynUser, &rawValue);
+	if (status!=asynSuccess) {
+		return status;
+	}
+
+	*value = rawValue & mask;
+	//printf ("Read 0x%04x with mask 0x%04x becomes 0x%04x\n", rawValue, mask, *value);
 	return asynSuccess;
+}
+
+asynStatus BeckPortDriver::writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask) {
+	printf("writeUInt32Digital with user %p, reason %d, value %d, and mask 0x%04x\n", pasynUser, pasynUser->reason, value, mask);
+
+	epicsInt32 rawValue;
+	asynStatus status;
+
+	status = readInt32(pasynUser, &rawValue);
+	if (status!=asynSuccess) {
+		return status;
+	}
+
+	/* Set bits that are set in the value and set in the mask */
+	rawValue |=  (value & mask);
+	/* Clear bits that are clear in the value and set in the mask */
+	rawValue  &= (value | ~mask);
+
+	return writeInt32(pasynUser, rawValue);
 }
 
 asynStatus BeckPortDriver::writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 value) {
@@ -167,9 +235,12 @@ asynStatus BeckPortDriver::writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32
 
 asynStatus BeckPortDriver::readReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 *value){
 	//printf("readReg %d of axis %d\n", regN, axis);
-
+	asynStatus status;
 	epicsInt32 readCmd = regN + 0x80;
-	writeProc(controlByte_[axis], readCmd);
+	status = writeProc(controlByte_[axis], readCmd);
+	if (status!=asynSuccess) {
+		return status;
+	}
 	return readProc(dataIn_[axis], 1, value);
 }
 
@@ -180,16 +251,16 @@ asynStatus BeckPortDriver::writeProc(asynInt32Client *modbusReg, epicsInt32 valu
 
 asynStatus BeckPortDriver::readProc(asynInt32Client *modbusReg, bool in, epicsInt32 *value) {
 	//printf("readProc... %s \n", in ? "input" : "output");
-	if (!in) return asynSuccess;
+	if (!in) return asynError;
 
 	if (interruptAccept) {
 		triggerReadIn_.write(0);
 		newDataIn_.readWait(value);
 	} else {
 		printf("Warning, interruptions not yet allowed... skipping reading!\n");
+		return asynError;
 	}
 	return modbusReg->read(value);
-
 }
 
 

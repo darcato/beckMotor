@@ -1,6 +1,7 @@
 
 #include <asynPortDriver.h>
 #include <asynPortClient.h>
+#include <asynUInt32Digital.h>
 #include <vector>
 #include <epicsEvent.h>
 
@@ -60,23 +61,32 @@ protected:
 	std::vector<asynInt32Client *> dataOut_;
 	std::vector<asynInt32Client *> controlWord_;
 
+	std::vector<epicsUInt32> controlByteValue_;
+	std::vector<epicsUInt32> dataOutValue_;
+	std::vector<epicsUInt32> controlWordValue_;
+
+	std::vector<bool> controlByteInitialized_;
+	std::vector<bool> dataOutInitialized_;
+	std::vector<bool> controlWordInitialized_;
+
 	//user to trigger an immediate reading of all the input modbus port, with each reagister updated
 	asynInt32Client triggerReadIn_;
-	asynInt32Client triggerReadOut_;
 	//call readWait on this to wait for new data to be read by modbusIO
 	asynInt32ClientSyncIO newDataIn_;
-	asynInt32ClientSyncIO newDataOut_;
 
 public:
 	BeckPortDriver(const char *portName, int nCtrl, const char *inModbusPort, const char *outModbusPort);
 	asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
 	asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
-	asynStatus drvUserCreate(asynUser *pasynUser, const char *drvInfo, const char **pptypeName, size_t *psize);
+	asynStatus readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask);
+	asynStatus writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask);
 
 private:
 	asynStatus writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 value);
 	asynStatus readReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 *value);
 	asynStatus writeProc(asynInt32Client *modbusReg, epicsInt32 value);
 	asynStatus readProc(asynInt32Client *modbusReg, bool in, epicsInt32 *value);
+
+
 };
 

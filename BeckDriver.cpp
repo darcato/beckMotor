@@ -50,7 +50,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	strcpy(beckDriverPName_, beckDriverPName);
 	int nAxis=getBeckMaxAddr(beckDriverPName);
 
-	printf("Now create axis\n");
+	printf("Now create %d axis\n", nAxis);
 	int i = 0;
 	for (i=0; i<nAxis; i++){
 		pAxis = new BeckAxis(this, i);
@@ -174,7 +174,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	}
 
 	//R32 	Feature register 1
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r32_, "R32");
+	status = pasynUInt32DigitalSyncIO->connect(pC_->beckDriverPName_, axis, &r32_, "R32");
 	if (status) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
@@ -246,7 +246,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	}
 
 	//R52 	Feature-Register 2
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r52_, "R52");
+	status = pasynUInt32DigitalSyncIO->connect(pC_->beckDriverPName_, axis, &r52_, "R52");
 	if (status) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
@@ -282,6 +282,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	}
 
 
+
 	//printf("Interruptions are %d", interruptAccept);
 	setDoubleParam(pC_->motorPosition_, 0);
 	setIntegerParam(pC_->motorStatusDone_, 1);
@@ -291,18 +292,24 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	setDoubleParam(pC->motorEncoderPosition_, 0);
 	setIntegerParam(pC_->motorStatusDone_, 1);
 
-	moveDone=true;
 	movePend=false;
 	limitSwitchDownIsInputOne = 0;
 
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
-
 }
 
 void BeckAxis::report(FILE *fp, int level)
 {
 	fprintf(fp, "Axis %d status: %s\n", axisNo_, movePend ? "Moving" : "Idle");
 	asynMotorAxis::report(fp, level);
+}
+
+asynStatus BeckAxis::updateCurrentPosition(){
+	epicsInt32 pLow, pHigh;
+	pasynInt32SyncIO->read(r0_, &pLow, 500);
+	pasynInt32SyncIO->read(r1_, &pHigh, 500);
+	currPos = pLow + (pHigh<<16);
+	return asynSuccess;
 }
 
 /**
@@ -444,8 +451,10 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
  * Set parameters for the homing procedure
  */
 asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl){
-	printf("-%s(%d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, speedToHome, speedFromHome, emergencyAccl);
-	epicsInt32 oldValue, featureReg;
+	printf("-%s(%d, %d, %d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
+	epicsInt32 oldValue;
+	epicsUInt32 oldRegister, featureReg;
+
 	pasynInt32SyncIO->read(r55_, &oldValue, 500);
 	if (oldValue!=(refPosition & 0xFFFF)){
 		printf("-R55: 0x%04x -> 0x%04x \t reference position (low word)\n", oldValue, refPosition & 0xFFFF);
@@ -453,7 +462,6 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 		pasynInt32SyncIO->write(r55_, refPosition & 0xFFFF, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
-
 	pasynInt32SyncIO->read(r56_, &oldValue, 500);
 	if (oldValue!=((refPosition>>16) & 0xFFFF)){
 		printf("-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
@@ -462,17 +470,13 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
-	pasynInt32SyncIO->read(r52_, &featureReg, 500);
-	oldValue = featureReg;
-	/* Set bits that are set in the value and set in the mask */
-	featureReg |=  (((NCcontacts<<15) + (NCcontacts<<14)) & 0xC000);
-	/* Clear bits that are clear in the value and set in the mask */
-	featureReg  &= (((NCcontacts<<15) + (NCcontacts<<14)) | ~0xC000);
-	if (featureReg!=oldValue){
-		printf("-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldValue, featureReg);
+	pasynUInt32DigitalSyncIO->read(r52_, &oldRegister, 0xC000, 500);
+	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
+	if (featureReg!=oldRegister){
+		printf("-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
 		printf("-Warning: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r52_, featureReg, 500);
+		pasynUInt32DigitalSyncIO->write(r52_, featureReg, 0xC000, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
@@ -583,35 +587,26 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 
 	//set feature register 1
-	epicsInt32 featureReg, value, oldValue;
+	epicsUInt32 featureReg, value;
 	value = 0x18	//path control mode
 		  + 0x2 	//enable autostop
 		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2);
-	pasynInt32SyncIO->read(r32_, &featureReg, 500);
-	oldValue = featureReg;
-	/* Set bits that are set in the value and set in the mask */
-	featureReg |=  (value & 0x881e);
-	/* Clear bits that are clear in the value and set in the mask */
-	featureReg  &= (value | ~0x881e);
-	if (featureReg!=oldValue) {
-		printf("-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", oldValue, featureReg, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
+
+	pasynUInt32DigitalSyncIO->read(r32_, &featureReg, 0x881e, 500);
+	if (featureReg!=value) {
+		printf("-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r32_, featureReg, 500);
+		pasynUInt32DigitalSyncIO->write(r32_, value, 0x881e, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
 	//set feature register 2
 	value = 0x8;	//enable idle
-	pasynInt32SyncIO->read(r52_, &featureReg, 500);
-	oldValue = featureReg;
-	/* Set bits that are set in the value and set in the mask */
-	featureReg |=  (value & 0x8);
-	/* Clear bits that are clear in the value and set in the mask */
-	featureReg  &= (value | ~0x8);
-	if (featureReg!=oldValue) {
-		printf("-FeatureReg2 0x%04x -> 0x%04x: idle active\n", oldValue, featureReg);
+	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x8, 500);
+	if (featureReg!=value) {
+		printf("-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r52_, featureReg, 500);
+		pasynUInt32DigitalSyncIO->write(r52_, value, 0x8, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
@@ -633,11 +628,8 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 
-	//update position
-	epicsInt32 pLow, pHigh;
-	pasynInt32SyncIO->read(r0_, &pLow, 500);
-	pasynInt32SyncIO->read(r1_, &pHigh, 500);
-	currPos = pLow + (pHigh<<16);
+	//update position to have it really up-to-date
+	updateCurrentPosition();
 	int newPos = (relative ? currPos : 0 ) + position;
 	if (newPos==currPos) return asynSuccess;
 
@@ -654,24 +646,24 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		} else {
 			goCmd = 0x5;
 		}
+	} else {
+		lastDir = (newPos-currPos) / abs(newPos-currPos);
 	}
 
-	lastDir = (newPos-currPos) / abs(newPos-currPos);
-
 	//move of minimum movement without caring of limit switches
-	//to enable movements if a limit switch was toggled
+	//to enable movements if a limit switch was previously toggled
 	int middlePos = currPos + (int) lastDir;
-	//printf("Going to %d\n", middlePos);
 	pasynInt32SyncIO->write(r2_, middlePos & 0xFFFF, 500);
 	pasynInt32SyncIO->write(r3_, (middlePos>>16) & 0xFFFF, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
+
 	movePend=true;
+	printf("-starting position:\t%10.2f\n", currPos);
 	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	pasynInt32SyncIO->write(controlByte_, 0x5, 500);
 	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 
 	//move to desired position checking limit switches
-	//printf("Going to %d\n", newPos);
 	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
 	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
@@ -685,30 +677,28 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
  */
 asynStatus BeckAxis::home(double min_velocity, double max_velocity, double acceleration, int forwards){
 	printf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
-	epicsInt32 featureReg, oldValue;
+	epicsUInt32 featureReg;
+	bool forward = forwards;
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 
 //	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 
 	//set feature register 2
-	pasynInt32SyncIO->read(r52_, &featureReg, 500);
-	oldValue = featureReg;
-	/* Set bits that are set in the value and set in the mask */
-	featureReg |=  (forwards & 0x1);
-	/* Clear bits that are clear in the value and set in the mask */
-	featureReg  &= (forwards | ~0x1);
-	if (featureReg!=oldValue) {
-		printf("-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", oldValue, featureReg);
+	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x1, 500);
+	if (featureReg!=forward) {
+		printf("-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", featureReg, forward);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r52_, featureReg, 500);
+		pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
+	pasynInt32SyncIO->write(dataOut_, 0, 500);
+	pasynInt32SyncIO->write(controlByte_, 1, 500);
 	pasynInt32SyncIO->write(r7_, 0x520, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
 
 	movePend=true;
-	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
+	pasynInt32SyncIO->write(controlByte_, 0x5, 500);
 	return asynSuccess;
 }
 
@@ -718,15 +708,12 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 asynStatus BeckAxis::poll(bool *moving) {
 	//TODO: invert limit switches and general movement by a setting
 
-	epicsInt32 pLow, pHigh;
 	epicsInt32 statusByte, statusWord;
-	bool regAccess, error, warning, ready;
+	bool regAccess, error, warning, ready, moveDone;
 	epicsInt32 loadAngle;
 
 	//update position
-	pasynInt32SyncIO->read(r0_, &pLow, 500);
-	pasynInt32SyncIO->read(r1_, &pHigh, 500);
-	currPos = pLow + (pHigh<<16);
+	updateCurrentPosition();
 	setDoubleParam(pC_->motorPosition_, currPos);
 
 	//update limit switches
@@ -751,24 +738,33 @@ asynStatus BeckAxis::poll(bool *moving) {
 	}
 	else{
 		pasynInt32SyncIO->write(controlByte_, 0x25, 500);
-		printf("-current position: %.2f\n", currPos);
+		printf("-current position:\t%10.2f\n", currPos);
 	}
 
 	//set status
 	pasynInt32SyncIO->read(statusByte_, &statusByte, 500);
 	pC_->modbusMutex.unlock();
 	regAccess = statusByte & 0x80;
-	error = statusByte & 0x40;
-	setIntegerParam(pC_->motorStatusProblem_, error);
-	warning = statusByte & 0x20;
-	moveDone = statusByte & 0x10;
-	movePend = !moveDone;
-	*moving = moveDone;
-	setIntegerParam(pC_->motorStatusDone_, moveDone);
-	loadAngle = statusByte & 0xE;
-	ready = statusByte & 0x1;
-	setIntegerParam(pC_->motorStatusPowerOn_, ready);
-
+	if(!regAccess) { //should never be one, but just in case...
+		error = statusByte & 0x40;
+		setIntegerParam(pC_->motorStatusProblem_, error);
+		warning = statusByte & 0x20;
+		moveDone = statusByte & 0x10;
+		if (moveDone && movePend) {
+			//update position in order to set it as updated as possible when putting motorDone to 1
+			updateCurrentPosition();
+			setDoubleParam(pC_->motorPosition_, currPos);
+			printf("-ending position:\t%10.2f\n", currPos);
+		}
+		movePend = !moveDone;
+		*moving = moveDone;
+		setIntegerParam(pC_->motorStatusDone_, moveDone);
+		loadAngle = statusByte & 0xE;
+		ready = statusByte & 0x1;
+		setIntegerParam(pC_->motorStatusPowerOn_, ready);
+	} else {
+		printf("Warning: registry access - mutex violated!\n");
+	}
 	callParamCallbacks();
 
 	return asynSuccess;
