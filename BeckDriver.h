@@ -81,6 +81,7 @@ private:
   bool movePend;
   double currPos, lastDir;
   bool lHigh, lLow;
+  epicsUInt32 lLowRepetitions, lHighRepetitions;
   bool limitSwitchDownIsInputOne;
 
   //util methods

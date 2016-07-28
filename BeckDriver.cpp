@@ -14,7 +14,7 @@ June 17, 2016
 //#include <stdlib.h>
 
 #include <iocsh.h>
-//#include <epicsThread.h>
+#include <epicsThread.h>
 
 #include <asynInt32SyncIO.h>
 #include <asynUInt32Digital.h>
@@ -293,6 +293,8 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	setIntegerParam(pC_->motorStatusDone_, 1);
 
 	movePend=false;
+	lLowRepetitions = 4;
+	lHighRepetitions = 4;
 	limitSwitchDownIsInputOne = 0;
 
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
@@ -583,6 +585,10 @@ asynStatus BeckAxis::softReset() {
  */
 asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	printf("-%s(%d, %d)\n", __FUNCTION__, encoder, watchdog);
+
+	//reset precedent errors
+	pasynUInt32DigitalSyncIO->write(controlByte_, 0x40, 0x40, 500);
+
 	//stop motor TODO how?
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 
@@ -679,9 +685,26 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 	printf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
 	epicsUInt32 featureReg;
 	bool forward = forwards;
+	bool moving;
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 
-//	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	//cannot start homing until both limit switches are not pressed
+	if (lLow || lHigh) {
+		//if first movement you are unlucky
+		//we must assume the limit switches are well configured with initHomingParams (.., lsDownOne, ..)
+		if (lastDir == 0){
+			lastDir = lHigh ? 1 : -1;
+		}
+		double initialLastDir = lastDir;
+		while (lLow || lHigh) {
+			move(-1280*initialLastDir, 1, min_velocity, max_velocity, acceleration);
+			while (movePend) {
+				epicsThreadSleep(0.05);
+				poll(&moving);
+				printf("-movePend is %d, currPos is %.2f\n", movePend, currPos);
+			}
+		}
+	}
 
 	//set feature register 2
 	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x1, 500);
@@ -690,15 +713,22 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
+		epicsUInt32 tmp;
+		pasynUInt32DigitalSyncIO->read(r52_, &tmp, 0x1, 500);
+		printf("Actually written: %d\n", tmp);
 	}
 
+	poll(&moving);
+
+	//start homing
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
 	pasynInt32SyncIO->write(controlByte_, 1, 500);
 	pasynInt32SyncIO->write(r7_, 0x520, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
 
 	movePend=true;
-	pasynInt32SyncIO->write(controlByte_, 0x5, 500);
+	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
+	printf("Homing partita!! ----------------------------------------------------\n");
 	return asynSuccess;
 }
 
@@ -710,6 +740,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 	epicsInt32 statusByte, statusWord;
 	bool regAccess, error, warning, ready, moveDone;
+	bool partialLHigh, partialLLow;
 	epicsInt32 loadAngle;
 
 	//update position
@@ -720,11 +751,41 @@ asynStatus BeckAxis::poll(bool *moving) {
 	pasynInt32SyncIO->read(statusWord_, &statusWord, 500);
 
 	if (limitSwitchDownIsInputOne) {
-		lHigh = statusWord & 0x2;
-		lLow = statusWord & 0x1;
+		partialLHigh = statusWord & 0x2;
+		partialLLow = statusWord & 0x1;
 	}else {
-		lHigh = statusWord & 0x1;
-		lLow = statusWord & 0x2;
+		partialLHigh = statusWord & 0x1;
+		partialLLow = statusWord & 0x2;
+	}
+
+	//implement antibounce for inputs
+	if (partialLLow != lLow) {
+		if (lLowRepetitions >= 3) {
+			lLowRepetitions = 0;
+			printf("-lLow changed state!\n");
+		} else {
+			lLowRepetitions++;
+			printf("lLow is %d for the %d time!\n", partialLLow, lLowRepetitions);
+		}
+	} else if (lLowRepetitions < 3) {
+		lLowRepetitions = 0;
+	}
+	if (partialLHigh != lHigh) {
+		if (lHighRepetitions >= 3) {
+			lHighRepetitions = 0;
+			printf("-lHigh changed state!\n");
+		} else {
+			lHighRepetitions++;
+			printf("-lHigh is %d for the %d time!\n", partialLHigh, lHighRepetitions);
+		}
+	} else if (lHighRepetitions < 3) {
+		lHighRepetitions = 0;
+	}
+	if (lHighRepetitions >= 3) {
+		lHigh = partialLHigh;
+	}
+	if (lLowRepetitions >=3) {
+		lLow = partialLLow;
 	}
 
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
@@ -734,7 +795,6 @@ asynStatus BeckAxis::poll(bool *moving) {
 	pC_->modbusMutex.lock();
 	if (!movePend) {
 		pasynInt32SyncIO->write(controlByte_, 0x21, 500);
-		movePend = false;
 	}
 	else{
 		pasynInt32SyncIO->write(controlByte_, 0x25, 500);
@@ -754,7 +814,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 			//update position in order to set it as updated as possible when putting motorDone to 1
 			updateCurrentPosition();
 			setDoubleParam(pC_->motorPosition_, currPos);
-			printf("-ending position:\t%10.2f\n", currPos);
+			printf("-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
 		}
 		movePend = !moveDone;
 		*moving = moveDone;
@@ -1024,4 +1084,6 @@ extern "C" {
 }
 
 
-//TODO:reset errors
+//TODO:check initial movement
+//TODO:enable modification of 3 times for antibounce
+//TODO:check negative high values when converting uint-int
