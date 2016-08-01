@@ -81,7 +81,7 @@ HOW TO USE:
     - refPosition: the value of the position to set when homing complete
     - NCcontacts: [0/1] if the contacts are normally closed or not
     - lsDownOne: [0/1] if the input one refers to the low limit switch (as for motor internal countings) or vice versa
-    - homeAtStartup: [-1, 0, 1] if to home or not at startup, in the direction indicated by the module of the value
+    - homeAtStartup: [-1, 0, 1] if to home or not at startup, in the direction indicated by the sign of the value
     - speedToHome: speed going towards the limit switch in homing procedure
     - speedFromHome: speed moving out of limit switch in homing procedure
     - emergencyAccl: the acceleration to stop motor when a limit switch is reached in homing procedure
