@@ -81,8 +81,9 @@ private:
   bool movePend;
   double currPos, lastDir;
   bool lHigh, lLow;
-  epicsUInt32 lLowRepetitions, lHighRepetitions;
+  epicsUInt32 lLowRepetitions, lHighRepetitions, topRepetitions;
   bool limitSwitchDownIsInputOne;
+  epicsInt32 microstepPerStep;
 
   //util methods
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);

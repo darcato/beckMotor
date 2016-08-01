@@ -27,8 +27,8 @@ June 17, 2016
 #include <cantProceed.h>
 #include "BeckDriver.h"
 
-
-#define PLC_LOOP_US 1
+#define OUTOFSWITCH_STEPS 10
+#define TOP_REPETITIONS 3
 
 #include <vector>
 #include <cmath>
@@ -293,8 +293,9 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	setIntegerParam(pC_->motorStatusDone_, 1);
 
 	movePend=false;
-	lLowRepetitions = 4;
-	lHighRepetitions = 4;
+	topRepetitions = TOP_REPETITIONS;
+	lLowRepetitions = topRepetitions+1;
+	lHighRepetitions = topRepetitions+1;
 	limitSwitchDownIsInputOne = 0;
 
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
@@ -530,11 +531,13 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
 			printf("Minimum microstep resolution is 1, setting 1!\n");
 			microstepPerStep = 1;
 		}
+
+		this->microstepPerStep = microstepPerStep;
 		microstepPerStep = round(log2(microstepPerStep));
 
 		pasynInt32SyncIO->read(r46_, &oldValue, 500);
 		if (oldValue!=microstepPerStep){
-			printf("-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), (int) pow(2, microstepPerStep));
+			printf("-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), this->microstepPerStep);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
 			pasynInt32SyncIO->write(r46_, microstepPerStep, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
@@ -697,7 +700,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		}
 		double initialLastDir = lastDir;
 		while (lLow || lHigh) {
-			move(-1280*initialLastDir, 1, min_velocity, max_velocity, acceleration);
+			move(-OUTOFSWITCH_STEPS*microstepPerStep*initialLastDir, 1, min_velocity, max_velocity, 500);
 			while (movePend) {
 				epicsThreadSleep(0.05);
 				poll(&moving);
@@ -760,31 +763,31 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 	//implement antibounce for inputs
 	if (partialLLow != lLow) {
-		if (lLowRepetitions >= 3) {
+		if (lLowRepetitions >= topRepetitions) {
 			lLowRepetitions = 0;
 			printf("-lLow changed state!\n");
 		} else {
 			lLowRepetitions++;
 			printf("lLow is %d for the %d time!\n", partialLLow, lLowRepetitions);
 		}
-	} else if (lLowRepetitions < 3) {
+	} else if (lLowRepetitions < topRepetitions) {
 		lLowRepetitions = 0;
 	}
 	if (partialLHigh != lHigh) {
-		if (lHighRepetitions >= 3) {
+		if (lHighRepetitions >= topRepetitions) {
 			lHighRepetitions = 0;
 			printf("-lHigh changed state!\n");
 		} else {
 			lHighRepetitions++;
 			printf("-lHigh is %d for the %d time!\n", partialLHigh, lHighRepetitions);
 		}
-	} else if (lHighRepetitions < 3) {
+	} else if (lHighRepetitions < topRepetitions) {
 		lHighRepetitions = 0;
 	}
-	if (lHighRepetitions >= 3) {
+	if (lHighRepetitions >= topRepetitions) {
 		lHigh = partialLHigh;
 	}
-	if (lLowRepetitions >=3) {
+	if (lLowRepetitions >=topRepetitions) {
 		lLow = partialLLow;
 	}
 
