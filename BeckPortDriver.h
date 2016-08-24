@@ -7,11 +7,8 @@
 
 int getBeckMaxAddr(const char *portName);
 
-/**
- * -------------------------------------------------
- * INT32CLIENT
- * -------------------------------------------------
- */
+//a classs to trigger a modbus read and wait for new data before returning
+//use write to trigger and readWait to read new data
 class asynInt32ClientSyncIO : public asynInt32Client {
 private:
 	epicsEvent event_;

@@ -33,8 +33,11 @@ June 17, 2016
 #include <vector>
 #include <cmath>
 
+//A vector to store all the controllers, in order to search into it to find controller by its name
 static std::vector<BeckController *> _controllers;
 
+//BeckController  :  asynMotorController  :  asynPortDriver
+//Represent a number of KL2541 Beckhoff modules
 BeckController::BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod )
   :  asynMotorController(portName, getBeckMaxAddr(beckDriverPName), 0,
 						 asynUInt32DigitalMask, // Add asynUInt32Digital interface to read single bits
@@ -46,10 +49,11 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	BeckAxis *pAxis; //set but not used not to be eliminated by compiler
 
 	beckDriverPName_ = (char *) mallocMustSucceed(strlen(beckDriverPName)+1, "Malloc failed\n");
-
 	strcpy(beckDriverPName_, beckDriverPName);
+	//get the number of axis from the underlying driver
 	int nAxis=getBeckMaxAddr(beckDriverPName);
 
+	//create each axis of this controller
 	printf("Now create %d axis\n", nAxis);
 	int i = 0;
 	for (i=0; i<nAxis; i++){
@@ -57,7 +61,8 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 		printf("Axis n: %d successfully created\n", i);
 	}
 
-	startPoller(movingPollPeriod, idlePollPeriod, 2); //TODO
+	//start the poller of each axis with two polling times: while the axis is moving and while it is not
+	startPoller(movingPollPeriod, idlePollPeriod, 2);
 }
 
 BeckAxis* BeckController::getAxis(asynUser *pasynUser)
@@ -79,8 +84,8 @@ void BeckController::report(FILE *fp, int level)
 	asynMotorController::report(fp, level);
 }
 
-extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod )
-{
+//function called from iocsh to create a controller and save it into the _controllers vector
+extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
 	BeckController *ctrl = new BeckController(portName, beckDriverPName, movingPollPeriod/1000., idlePollPeriod/1000.);
 	printf("Controller %p\n", ctrl);
 	_controllers.push_back(ctrl);
@@ -91,6 +96,7 @@ extern "C" int BeckCreateController(const char *portName, const char *beckDriver
 
 /************************************************/
 
+//create an axis representing a single beckhoff module and its motor
 BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynMotorAxis(pC, axis),
 		pC_(pC)
@@ -98,7 +104,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	asynStatus status;
 	static const char *functionName = "BeckAxis::BeckAxis";
 
-	/* Connect to inputs */
+	// Connect to modbus input registers through the underlying driver
 	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &statusByte_, "SB");
 	if (status) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
@@ -114,7 +120,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
 
-	/* Connect to outputs */
+	// Connect to modbus output registers through the underlying driver
 	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &controlByte_, "CB");
 	if (status) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
@@ -130,7 +136,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
 
-	/* Connect to registers */
+	// Connect to the beckhoff internal registers through the underlying driver
 	//R0 	Actual position (low-order word)
 	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r0_, "R00");
 	if (status) {
@@ -281,9 +287,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
 
-
-
-	//printf("Interruptions are %d", interruptAccept);
+	//set convenient parameters to initialize record motor
 	setDoubleParam(pC_->motorPosition_, 0);
 	setIntegerParam(pC_->motorStatusDone_, 1);
 	setDoubleParam(pC_->motorVelBase_, 100);
@@ -292,32 +296,33 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	setDoubleParam(pC->motorEncoderPosition_, 0);
 	setIntegerParam(pC_->motorStatusDone_, 1);
 
+	//initialize local parameters
 	movePend=false;
-	topRepetitions = TOP_REPETITIONS;
+	topRepetitions = TOP_REPETITIONS;  // when read the limit switch: after topRepetition times that it has a new state, the new state is set
 	lLowRepetitions = topRepetitions+1;
 	lHighRepetitions = topRepetitions+1;
-	limitSwitchDownIsInputOne = 0;
+	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
 
+	//give current to the motor (enable)
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
 }
 
-void BeckAxis::report(FILE *fp, int level)
-{
+//a report function for the record
+void BeckAxis::report(FILE *fp, int level) {
 	fprintf(fp, "Axis %d status: %s\n", axisNo_, movePend ? "Moving" : "Idle");
 	asynMotorAxis::report(fp, level);
 }
 
-asynStatus BeckAxis::updateCurrentPosition(){
-	epicsInt32 pLow, pHigh;
+//a convenient function to read the current position, stored in currPos
+asynStatus BeckAxis::updateCurrentPosition() {
+	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and ricombinated
 	pasynInt32SyncIO->read(r0_, &pLow, 500);
 	pasynInt32SyncIO->read(r1_, &pHigh, 500);
 	currPos = pLow + (pHigh<<16);
 	return asynSuccess;
 }
 
-/**
- * private method to be reused inside class
- */
+//convenient function to set acceleration and velocity of the motor
 asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
 	pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
 	pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
@@ -622,9 +627,7 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	return asynSuccess;
 }
 
-/**
- * Method to execute movement
- */
+//Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
 {
 	//TODO check for overflow in relative mode
@@ -681,9 +684,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	return asynSuccess;
 }
 
-/**
- * Method to execute the homing
- */
+//Method to execute the homing
 asynStatus BeckAxis::home(double min_velocity, double max_velocity, double acceleration, int forwards){
 	printf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
 	epicsUInt32 featureReg;
@@ -721,6 +722,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		printf("Actually written: %d\n", tmp);
 	}
 
+	//update status
 	poll(&moving);
 
 	//start homing
@@ -731,13 +733,11 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 
 	movePend=true;
 	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
-	printf("Homing partita!! ----------------------------------------------------\n");
+	printf("Homing started!! ----------------------------------------------------\n");
 	return asynSuccess;
 }
 
-/**
- * Poller to update motor status on the record
- */
+//Poller to update motor status on the record
 asynStatus BeckAxis::poll(bool *moving) {
 	//TODO: invert limit switches and general movement by a setting
 
@@ -841,7 +841,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 
 /**
- * Config Controller Functions
+ * Function to be called by shell command to toggle the configuration methods
  */
 BeckController * findBeckControllerByName(const char *name) {
 	for(std::vector<BeckController *>::iterator i = _controllers.begin(); i != _controllers.end(); i++ ){
@@ -851,6 +851,7 @@ BeckController * findBeckControllerByName(const char *name) {
 	return 0;
 }
 
+//parse commands and call each function
 extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const char *cmd, const char *cmdArgs) {
 	BeckController *ctrl = findBeckControllerByName(ctrlName);
 	if (ctrl == NULL) {

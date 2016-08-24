@@ -16,10 +16,10 @@
 #define KL2541_N_REG 64
 #define MAX_TRY 2
 
-
+//a vector to store a reference to each driver created
 static std::vector<BeckPortDriver *> _drivers;
 
-
+//function to retrieve the number of axis given a controller name
 int getBeckMaxAddr(const char *portName) {
 	for(std::vector<BeckPortDriver *>::iterator i=_drivers.begin(); i != _drivers.end(); i++) {
 		if(strcmp((*i)->portName, portName) == 0) {
@@ -31,12 +31,16 @@ int getBeckMaxAddr(const char *portName) {
 	return -1;
 }
 
-
+//A driver to facilitate communication with beckhoff module
+//enables r/w indifferently in internal or modbus registers, hiding the difference
+//the addressing is done via the reason: SB, DI, SW, CB, DO, CW for the modbus regs and R00->R63 for the internal ones
+//implements asynInt32 and asynUInt32Digital
 BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inModbusPort, const char *outModbusPort)
 	: asynPortDriver( portName, nAxis, KL2541_N_REG+6, asynInt32Mask | asynUInt32DigitalMask | asynDrvUserMask, asynInt32Mask | asynUInt32DigitalMask, ASYN_CANBLOCK | ASYN_MULTIDEVICE, 1, 0, 0),
 	  triggerReadIn_(inModbusPort, 0, "MODBUS_READ"),
 	  newDataIn_(inModbusPort, 0, "MODBUS_DATA")
 {
+	//create a parameter (representing the reason) for each internal register
 	char name[10];
 	int tmp;
 	createParam("R00", asynParamInt32, &roffset);
@@ -47,6 +51,7 @@ BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inMo
 		printf("Create parameter %s with reason %d\n", name, tmp);
 	}
 
+	//create a parameter for the modbus registers
 	createParam("SB", asynParamInt32, &statusByteIndx_);
 	createParam("DI", asynParamInt32, &dataInIndx_);
 	createParam("SW", asynParamInt32, &statusWordIndx_);
@@ -54,7 +59,7 @@ BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inMo
 	createParam("DO", asynParamInt32, &dataOutIndx_);
 	createParam("CW", asynParamInt32, &controlWordIndx_);
 
-
+	//for each axis connect to the modbus registers
 	for(int i=0; i<nAxis; i++){
 		statusByte_.push_back(new asynInt32Client(inModbusPort, i*3+0, "MODBUS_DATA"));
 		dataIn_.push_back(new asynInt32Client(inModbusPort, i*3+1, "MODBUS_DATA"));
@@ -73,15 +78,18 @@ BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inMo
 	}
 }
 
+//readInt32 implementation
 asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 	//printf("readInt32 with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
 
+	//if an internal register
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
 		//printf("Read Register %d\n", pasynUser->reason-roffset);
 		return readReg(pasynUser->reason-roffset, axis, value);
 
+	//else check which modbus register
 	} else if (pasynUser->reason == statusByteIndx_){
 		return readProc(statusByte_[axis], 1, value);
 		//printf("Read Status Byte - 0x%x\n", *value);
@@ -94,6 +102,8 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 		return readProc(statusWord_[axis], 1, value);
 		//printf("Read Status Word - 0x%x\n", *value);
 
+	//for the output modbus register I return a saved value because they can be read only one time
+	//this means the driver must be the only one accessing those registers
 	} else if (pasynUser->reason == controlByteIndx_){
 		if (controlByteInitialized_[axis]) {
 			*value = controlByteValue_[axis];
@@ -136,21 +146,25 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 			return status;
 		}
 
+	//cannot recognize reason
 	} else {
 		printf("Error: Wrong reason!\n");
 		return asynError;
 	}
 }
 
+//writeInt32 implementation
 asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value) {
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
 	//printf("writeInt32 with value 0x%04x %i\n", value, axis);
 
+	//if an internal register
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
 		//printf("Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
 		return writeReg(pasynUser->reason-roffset, axis, value);
 
+	//if a modbus register
 	} else if (pasynUser->reason == controlByteIndx_){
 		//printf("Write Control Byte - 0x%x\n", value);
 		controlByteValue_[axis] = value;
@@ -169,13 +183,14 @@ asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value) {
 		controlWordInitialized_[axis] = true;
 		return writeProc(controlWord_[axis], value);
 
+	//cannot write to input registers, sorry.
 	} else {
 		printf("Error: Wrong reason!\n");
 		return asynError;
 	}
 }
 
-
+//readUInt32Digital implementation
 asynStatus BeckPortDriver::readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask) {
 	//printf("readUInt32Digital with user %p, reason %d and mask 0x%04x\n", pasynUser, pasynUser->reason, mask);
 
@@ -187,11 +202,13 @@ asynStatus BeckPortDriver::readUInt32Digital(asynUser *pasynUser, epicsUInt32 *v
 		return status;
 	}
 
+	//simply apply a mask over the asynInt32 reading
 	*value = rawValue & mask;
 	//printf ("Read 0x%04x with mask 0x%04x becomes 0x%04x\n", rawValue, mask, *value);
 	return asynSuccess;
 }
 
+//writeUInt32Digital implementation
 asynStatus BeckPortDriver::writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask) {
 	//printf("writeUInt32Digital with user %p, reason %d, value %d, and mask 0x%04x\n", pasynUser, pasynUser->reason, value, mask);
 
