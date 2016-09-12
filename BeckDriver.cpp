@@ -828,6 +828,9 @@ asynStatus BeckAxis::poll(bool *moving) {
 	} else {
 		printf("Warning: registry access - mutex violated!\n");
 	}
+
+	//set direction status
+	setIntegerParam(pC_->motorStatusDirection_, (lastDir>0) ? 1 : 0 );
 	callParamCallbacks();
 
 	return asynSuccess;
