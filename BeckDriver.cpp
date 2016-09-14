@@ -734,6 +734,9 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 	movePend=true;
 	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
 	printf("Homing started!! ----------------------------------------------------\n");
+
+	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
+	lastDir = forward ? -1 : 1;
 	return asynSuccess;
 }
 
