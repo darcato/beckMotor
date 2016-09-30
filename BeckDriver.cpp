@@ -324,6 +324,11 @@ asynStatus BeckAxis::updateCurrentPosition() {
 
 //convenient function to set acceleration and velocity of the motor
 asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
+	//info at http://infosys.beckhoff.com/italiano.php?content=../content/1040/bk9000/html/bt_bk9000_title.htm&id=259
+	min_velocity = min_velocity * 0.016384;  //vel=mstep/sec/16Mhz*262144
+	max_velocity = max_velocity * 0.016384;
+	acceleration = acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
+
 	pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
 	pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
 	pasynInt32SyncIO->write(r40_, (int) acceleration, 500);
