@@ -627,11 +627,51 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	return asynSuccess;
 }
 
+//simply move toward newPos with goCmd (may be 0x5 not to check limSw or 0x25 to check them)
+asynStatus BeckAxis::directMove(int newPos, int goCmd) {
+	//set new position where to go
+	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
+	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
+	pasynInt32SyncIO->write(dataOut_, 0, 500);
+
+	//start movement
+	movePend=true;
+	setIntegerParam(pC_->motorStatusDone_, false);
+	callParamCallbacks();
+	printf("-starting position:\t%10.2f\n", currPos);
+	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
+}
+
+//exit from the limit switches performing n steps and then checking until out
+asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
+	if (!(lHigh or lLow)) {
+		return asynSuccess;
+	}
+
+	bool moving;
+	double exitDir = -lastDir;
+
+	printf("Moving out of limit switch!");
+	while ((lLow || lHigh) and (!usePos  or exitDir*currPos<newPos*exitDir)) {
+		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
+		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
+			middlePos=newPos;
+		}
+		directMove(middlePos, 0x5);
+		while (movePend) {
+			epicsThreadSleep(0.05);
+			poll(&moving);
+			printf("-movePend is %d, currPos is %.2f\n", movePend, currPos);
+		}
+	}
+	return asynSuccess;
+}
+
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
 {
 	//TODO check for overflow in relative mode
-	//TODO verify stall or unable to end movement
 
 	printf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
 
@@ -645,36 +685,34 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	int newPos = (relative ? currPos : 0 ) + position;
 	if (newPos==currPos) return asynSuccess;
 
-	epicsInt32 goCmd = 0x25;
+	//if limit switches toggled
 	if (lLow || lHigh) {
 		//if first movement you are unlucky
 		//we must assume the limit switches are well configured with initHomingParams (.., lsDownOne, ..)
 		if (lastDir == 0){
 			lastDir = lHigh ? 1 : -1;
+			printf("WARNING: First movement with limit switch toggled, may be unsafe! (last direction: '%s')\n", lastDir>0 ? "UP" : "DOWN");
 		}
+		//going towards limit switch
 		if (newPos*lastDir > currPos*lastDir) {
 			printf("Already at limit switch in %s direction!\n", (lastDir>0) ? "positive" : "negative");
 			return asynSuccess;
-		} else {
-			goCmd = 0x5;
-			lastDir -= lastDir;
+		} else {  //exiting
+			exitLimSw(true, newPos);
 		}
-	} else {
+	}
+
+	//now it may have exited the limit switches
+	if ( !(lLow || lHigh) ) {
+		//dont'change last direction until I exit the limit switch
+		//in order to remember the direction that brought us to the lim switch
 		lastDir = (newPos-currPos) / abs(newPos-currPos);
 	}
 
-	//set new position where to go
-	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
-	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
-	pasynInt32SyncIO->write(dataOut_, 0, 500);
-
-	//start movement
-	movePend=true;
-	setIntegerParam(pC_->motorStatusDone_, false);
-	callParamCallbacks();
-	printf("-starting position:\t%10.2f\n", currPos);
-	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
-	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
+	//move remaining after exiting limit switch or complete movement if already out
+	if (newPos != currPos) {
+		directMove(newPos, 0x25);
+	}
 	return asynSuccess;
 }
 
@@ -693,15 +731,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		if (lastDir == 0){
 			lastDir = lHigh ? 1 : -1;
 		}
-		double initialLastDir = lastDir;
-		while (lLow || lHigh) {
-			move(-OUTOFSWITCH_STEPS*microstepPerStep*initialLastDir, 1, min_velocity, max_velocity, 100);
-			while (movePend) {
-				epicsThreadSleep(0.05);
-				poll(&moving);
-				printf("-movePend is %d, currPos is %.2f\n", movePend, currPos);
-			}
-		}
+		exitLimSw(false, 0);
 	}
 
 	//set feature register 2
@@ -736,8 +766,6 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 
 //Poller to update motor status on the record
 asynStatus BeckAxis::poll(bool *moving) {
-	//TODO: invert limit switches and general movement by a setting
-
 	epicsInt32 statusByte, statusWord;
 	bool regAccess, error, warning, ready, moveDone;
 	bool partialLHigh, partialLLow;

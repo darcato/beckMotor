@@ -39,6 +39,9 @@ public:
 
 private:
   asynStatus updateCurrentPosition();
+  asynStatus directMove(int position, int goCmd);
+  asynStatus exitLimSw(bool usePos, int newPos);
+
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
                                    *   Abbreviated because it is used very frequently */
 
