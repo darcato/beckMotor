@@ -657,29 +657,23 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 			return asynSuccess;
 		} else {
 			goCmd = 0x5;
+			lastDir -= lastDir;
 		}
 	} else {
 		lastDir = (newPos-currPos) / abs(newPos-currPos);
 	}
 
-	//move of minimum movement without caring of limit switches
-	//to enable movements if a limit switch was previously toggled
-	int middlePos = currPos + (int) lastDir;
-	pasynInt32SyncIO->write(r2_, middlePos & 0xFFFF, 500);
-	pasynInt32SyncIO->write(r3_, (middlePos>>16) & 0xFFFF, 500);
-	pasynInt32SyncIO->write(dataOut_, 0, 500);
-
-	movePend=true;
-	printf("-starting position:\t%10.2f\n", currPos);
-	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
-	pasynInt32SyncIO->write(controlByte_, 0x5, 500);
-	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
-
-	//move to desired position checking limit switches
+	//set new position where to go
 	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
 	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
 
+	//start movement
+	movePend=true;
+	setIntegerParam(pC_->motorStatusDone_, false);
+	callParamCallbacks();
+	printf("-starting position:\t%10.2f\n", currPos);
+	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
 	return asynSuccess;
 }
@@ -701,7 +695,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		}
 		double initialLastDir = lastDir;
 		while (lLow || lHigh) {
-			move(-OUTOFSWITCH_STEPS*microstepPerStep*initialLastDir, 1, min_velocity, max_velocity, 500);
+			move(-OUTOFSWITCH_STEPS*microstepPerStep*initialLastDir, 1, min_velocity, max_velocity, 100);
 			while (movePend) {
 				epicsThreadSleep(0.05);
 				poll(&moving);
@@ -767,7 +761,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	//implement antibounce for inputs
 	if (partialLLow != lLow) {
 		if (lLowRepetitions >= topRepetitions) {
-			lLowRepetitions = 0;
+			lLowRepetitions = 1;
 			printf("-lLow changed state!\n");
 		} else {
 			lLowRepetitions++;
@@ -776,9 +770,10 @@ asynStatus BeckAxis::poll(bool *moving) {
 	} else if (lLowRepetitions < topRepetitions) {
 		lLowRepetitions = 0;
 	}
+
 	if (partialLHigh != lHigh) {
 		if (lHighRepetitions >= topRepetitions) {
-			lHighRepetitions = 0;
+			lHighRepetitions = 1;
 			printf("-lHigh changed state!\n");
 		} else {
 			lHighRepetitions++;
