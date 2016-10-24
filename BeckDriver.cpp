@@ -739,7 +739,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		exitLimSw(false, 0);
 	}
 
-	//set feature register 2
+	//set feature register 2 to set homing direction
 	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x1, 500);
 	if (featureReg!=forward) {
 		printf("-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", featureReg, forward);
