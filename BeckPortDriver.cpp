@@ -2,7 +2,8 @@
  * BeckPortDriver.cpp
  *
  *  Created on: Jul 14, 2016
- *      Author: davide
+ *      Author: Davide Marcato
+ *      Mail: davide.marcato@lnl.infn.it
  */
 
 #include "BeckPortDriver.h"

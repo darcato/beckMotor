@@ -3,6 +3,7 @@ FILENAME... BeckDriver.cpp
 USAGE...	Motor driver support for the Beckhoff KL2541 controller.
 
 Davide Marcato
+davide.marcato@lnl.infn.it
 June 17, 2016
 
 */
@@ -27,7 +28,7 @@ June 17, 2016
 #include <cantProceed.h>
 #include "BeckDriver.h"
 
-#define OUTOFSWITCH_STEPS 10
+#define OUTOFSWITCH_STEPS 200
 #define TOP_REPETITIONS 3
 
 #include <vector>
@@ -655,10 +656,12 @@ asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
 	}
 
 	bool moving;
-	double exitDir = -lastDir;
+	double exitDir = lHigh ? -1 : 1;
+	bool *activeSwitch = lHigh ? &lHigh : &lLow;
+	bool *inactiveSwitch = lHigh ? &lLow : &lHigh;
 
 	printf("Moving out of limit switch!");
-	while ((lLow || lHigh) and (!usePos  or exitDir*currPos<newPos*exitDir)) {
+	while (activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !inactiveSwitch) {
 		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
 		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
 			middlePos=newPos;
@@ -690,19 +693,18 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	int newPos = (relative ? currPos : 0 ) + position;
 	if (newPos==currPos) return asynSuccess;
 
-	//if limit switches toggled
-	if (lLow || lHigh) {
-		//if first movement you are unlucky
-		//we must assume the limit switches are well configured with initHomingParams (.., lsDownOne, ..)
-		if (lastDir == 0){
-			lastDir = lHigh ? 1 : -1;
-			printf("WARNING: First movement with limit switch toggled, may be unsafe! (last direction: '%s')\n", lastDir>0 ? "UP" : "DOWN");
-		}
-		//going towards limit switch
-		if (newPos*lastDir > currPos*lastDir) {
-			printf("Already at limit switch in %s direction!\n", (lastDir>0) ? "positive" : "negative");
+	if (lLow) {
+		if (newPos < currPos) {
+			printf("Already at limit switch in negative direction!\n");
 			return asynSuccess;
-		} else {  //exiting
+		} else {
+			exitLimSw(true, newPos);
+		}
+	} else if (lHigh) {
+		if (newPos > currPos) {
+			printf("Already at limit switch in positive direction!\n");
+			return asynSuccess;
+		} else {
 			exitLimSw(true, newPos);
 		}
 	}
@@ -712,12 +714,14 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		//dont'change last direction until I exit the limit switch
 		//in order to remember the direction that brought us to the lim switch
 		lastDir = (newPos-currPos) / abs(newPos-currPos);
+
+		//move remaining after exiting limit switch or complete movement if already out
+		if (newPos != currPos) {
+			directMove(newPos, 0x25);
+		}
 	}
 
-	//move remaining after exiting limit switch or complete movement if already out
-	if (newPos != currPos) {
-		directMove(newPos, 0x25);
-	}
+
 	return asynSuccess;
 }
 
@@ -731,11 +735,6 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 
 	//cannot start homing until both limit switches are not pressed
 	if (lLow || lHigh) {
-		//if first movement you are unlucky
-		//we must assume the limit switches are well configured with initHomingParams (.., lsDownOne, ..)
-		if (lastDir == 0){
-			lastDir = lHigh ? 1 : -1;
-		}
 		exitLimSw(false, 0);
 	}
 

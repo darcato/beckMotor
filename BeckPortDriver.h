@@ -1,3 +1,10 @@
+/*
+ * BeckPortDriver.cpp
+ *
+ *  Created on: Jul 14, 2016
+ *      Author: Davide Marcato
+ *      Mail: davide.marcato@lnl.infn.it
+ */
 
 #include <asynPortDriver.h>
 #include <asynPortClient.h>
