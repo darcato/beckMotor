@@ -55,11 +55,11 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	int nAxis=getBeckMaxAddr(beckDriverPName);
 
 	//create each axis of this controller
-	printf("Now create %d axis\n", nAxis);
+	asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"Now create %d axis\n", nAxis);
 	int i = 0;
 	for (i=0; i<nAxis; i++){
 		pAxis = new BeckAxis(this, i);
-		printf("Axis n: %d successfully created\n", i);
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"Axis n: %d successfully created\n", i);
 	}
 
 	//start the poller of each axis with two polling times: while the axis is moving and while it is not
@@ -88,7 +88,7 @@ void BeckController::report(FILE *fp, int level)
 //function called from iocsh to create a controller and save it into the _controllers vector
 extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
 	BeckController *ctrl = new BeckController(portName, beckDriverPName, movingPollPeriod/1000., idlePollPeriod/1000.);
-	printf("Controller %p\n", ctrl);
+	epicsStdoutPrintf("Controller %p\n", ctrl);
 	_controllers.push_back(ctrl);
 	return(asynSuccess);
 }
@@ -342,7 +342,7 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
  * Set coil currents of the motor
  */
 asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double highAccCurr, double lowAccCurr) {
-	printf("-%s(%.2f, %.2f, %.2f, %.2f)\n", __FUNCTION__, maxAmp, autoHoldinCurr, highAccCurr, lowAccCurr);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%.2f, %.2f, %.2f, %.2f)\n", __FUNCTION__, maxAmp, autoHoldinCurr, highAccCurr, lowAccCurr);
 	epicsInt32 termType = 0;
 	double fullScaleCurr;
 	int setMaxCurrentA, setMaxCurrentB, setHoldCurr, setHighAccCurr, setLowAccCurr;
@@ -358,11 +358,11 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		case 2531: fullScaleCurr = 1.5; break;
 		case 2541: fullScaleCurr = 5.0;	break;
 		default: {
-			printf("Error: Cannot recognize controller type %d\n", termType);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Error: Cannot recognize controller type %d\n", termType);
 			return asynError;
 		}
 	}
-	printf("Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", termType, fullScaleCurr);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", termType, fullScaleCurr);
 
 	//R35: Maximum coil current A (in % to fullScale of device)
 	//R36: Maximum coil current B (in % to fullScale of device)
@@ -371,16 +371,16 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		pasynInt32SyncIO->read(r36_, &setMaxCurrentB, 500);
 
 		if (maxAmp>fullScaleCurr) {
-			printf("Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
 			maxAmp = fullScaleCurr;
 		}
 		percent = round( maxAmp / fullScaleCurr *100 );
 		if (setMaxCurrentA!=percent) {
-			printf("-R35 0x%04x -> 0x%04x: max current A (%%)\n", setMaxCurrentA, percent);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R35 0x%04x -> 0x%04x: max current A (%%)\n", setMaxCurrentA, percent);
 			pasynInt32SyncIO->write(r35_, percent, 500);
 		}
 		if (setMaxCurrentB!=percent) {
-			printf("-R36 0x%04x -> 0x%04x: max current B (%%)\n", setMaxCurrentB, percent);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R36 0x%04x -> 0x%04x: max current B (%%)\n", setMaxCurrentB, percent);
 			pasynInt32SyncIO->write(r36_, percent, 500);
 		}
 	}
@@ -392,12 +392,12 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 
 	//lower current to minimum common if found different
 	if (setMaxCurrentA>setMaxCurrentB) {
-		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
 		setMaxCurrentA = setMaxCurrentB;
 		pasynInt32SyncIO->write(r35_, setMaxCurrentA, 500);
 	}
 	if (setMaxCurrentB>setMaxCurrentA) {
-		printf("Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
 		setMaxCurrentB = setMaxCurrentA;
 		pasynInt32SyncIO->write(r36_, setMaxCurrentA, 500);
 	}
@@ -405,7 +405,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 	//check if the writing was unsuccessful
 	setMaxAmp = ((double) setMaxCurrentA)/100.0*fullScaleCurr;
 	if (maxAmp>=0 && abs(setMaxAmp-maxAmp)>0.01) {
-		printf("Error: Failed to write maxCurrent %.2lf vs %.2lf\n", maxAmp, setMaxAmp);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Error: Failed to write maxCurrent %.2lf vs %.2lf\n", maxAmp, setMaxAmp);
 		return asynError;
 	}
 
@@ -413,12 +413,12 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 	if (autoHoldinCurr>=0) {
 		pasynInt32SyncIO->read(r44_, &setHoldCurr, 500);
 		if (autoHoldinCurr>setMaxAmp) {
-			printf("Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
 			autoHoldinCurr = setMaxAmp;
 		}
 		percent = round( autoHoldinCurr / setMaxAmp *100 );
 		if (setHoldCurr!=percent) {
-			printf("-R44 0x%04x -> 0x%04x: auto holding current (%%)\n", setHoldCurr, percent);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R44 0x%04x -> 0x%04x: auto holding current (%%)\n", setHoldCurr, percent);
 			pasynInt32SyncIO->write(r44_, percent, 500);
 		}
 	}
@@ -428,12 +428,12 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		pasynInt32SyncIO->read(r42_, &setHighAccCurr, 500);
 
 		if (highAccCurr>setMaxAmp) {
-			printf("Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
 			highAccCurr = setMaxAmp;
 		}
 		percent = round( highAccCurr / setMaxAmp *100 );
 		if (setHighAccCurr!=percent) {
-			printf("-R42 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setHighAccCurr, percent);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R42 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setHighAccCurr, percent);
 			pasynInt32SyncIO->write(r42_, percent, 500);
 		}
 	}
@@ -443,12 +443,12 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		pasynInt32SyncIO->read(r43_, &setLowAccCurr, 500);
 
 		if (lowAccCurr>setMaxAmp) {
-			printf("Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
 			lowAccCurr = setMaxAmp;
 		}
 		percent = round( lowAccCurr / setMaxAmp *100 );
 		if (setLowAccCurr!=percent) {
-			printf("-R43 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setLowAccCurr, percent);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R43 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setLowAccCurr, percent);
 			pasynInt32SyncIO->write(r43_, percent, 500);
 		}
 	}
@@ -456,7 +456,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 	//remove passcode from register 31
 	pasynInt32SyncIO->write(r31_, 0, 500);
 
-	printf("Currents written to the controller!\n");
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Currents written to the controller!\n");
 	return asynSuccess;
 }
 
@@ -465,20 +465,20 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
  * Set parameters for the homing procedure
  */
 asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl){
-	printf("-%s(%d, %d, %d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%d, %d, %d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
 	epicsInt32 oldValue;
 	epicsUInt32 oldRegister, featureReg;
 
 	pasynInt32SyncIO->read(r55_, &oldValue, 500);
 	if (oldValue!=(refPosition & 0xFFFF)){
-		printf("-R55: 0x%04x -> 0x%04x \t reference position (low word)\n", oldValue, refPosition & 0xFFFF);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R55: 0x%04x -> 0x%04x \t reference position (low word)\n", oldValue, refPosition & 0xFFFF);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynInt32SyncIO->write(r55_, refPosition & 0xFFFF, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 	pasynInt32SyncIO->read(r56_, &oldValue, 500);
 	if (oldValue!=((refPosition>>16) & 0xFFFF)){
-		printf("-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynInt32SyncIO->write(r56_, (refPosition>>16) & 0xFFFF, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
@@ -487,8 +487,8 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	pasynUInt32DigitalSyncIO->read(r52_, &oldRegister, 0xC000, 500);
 	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
 	if (featureReg!=oldRegister){
-		printf("-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
-		printf("-Warning: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-Warning: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r52_, featureReg, 0xC000, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
@@ -497,7 +497,7 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	if (speedToHome>=0){
 		pasynInt32SyncIO->read(r53_, &oldValue, 500);
 		if (oldValue!=((int) speedToHome)){
-			printf("-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) speedToHome);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) speedToHome);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
 			pasynInt32SyncIO->write(r53_, (int) speedToHome, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
@@ -507,7 +507,7 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	if (speedFromHome>=0){
 		pasynInt32SyncIO->read(r54_, &oldValue, 500);
 		if (oldValue!=((int) speedFromHome)){
-			printf("-R54: 0x%04x -> 0x%04x \t speed from home\n", oldValue, (int) speedFromHome);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R54: 0x%04x -> 0x%04x \t speed from home\n", oldValue, (int) speedFromHome);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
 			pasynInt32SyncIO->write(r54_, (int) speedFromHome, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
@@ -517,10 +517,9 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	if (emergencyAccl>=0){
 		pasynInt32SyncIO->read(r50_, &oldValue, 500);
 		if (oldValue!=((int) emergencyAccl)){
-			printf("-R50: 0x%04x -> 0x%04x \t emergency acceleration\n", oldValue, (int) emergencyAccl);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R50: 0x%04x -> 0x%04x \t emergency acceleration\n", oldValue, (int) emergencyAccl);
 			pasynInt32SyncIO->write(r50_, (int) emergencyAccl, 500);
 		}
-
 	}
 
 	if (homeAtStartup!=0) {
@@ -535,15 +534,15 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
  * Set the step resolution of the controller
  */
 asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolution){
-	printf("-%s(%d, %d)\n", __FUNCTION__, microstepPerStep, stepPerRevolution);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%d, %d)\n", __FUNCTION__, microstepPerStep, stepPerRevolution);
 	epicsInt32 oldValue;
 	if (microstepPerStep>0) {
 		if (microstepPerStep > 64) {
-			printf("Maximum microstep resolution is 64, setting 64!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Maximum microstep resolution is 64, setting 64!\n");
 			microstepPerStep = 64;
 		}
 		if (microstepPerStep < 1) {
-			printf("Minimum microstep resolution is 1, setting 1!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Minimum microstep resolution is 1, setting 1!\n");
 			microstepPerStep = 1;
 		}
 
@@ -552,7 +551,7 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
 
 		pasynInt32SyncIO->read(r46_, &oldValue, 500);
 		if (oldValue!=microstepPerStep){
-			printf("-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), this->microstepPerStep);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), this->microstepPerStep);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
 			pasynInt32SyncIO->write(r46_, microstepPerStep, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
@@ -562,7 +561,7 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
 	if (stepPerRevolution>0) {
 		pasynInt32SyncIO->read(r33_, &oldValue, 500);
 		if (oldValue!=stepPerRevolution){
-			printf("-R33: 0x%04x -> 0x%04x \t step per revolution\n", oldValue, stepPerRevolution);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-R33: 0x%04x -> 0x%04x \t step per revolution\n", oldValue, stepPerRevolution);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
 			pasynInt32SyncIO->write(r33_, stepPerRevolution, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
@@ -577,7 +576,7 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
  * Restore the BEckhoff module to its factory settings
  */
 asynStatus BeckAxis::hardReset() {
-	printf("Attention - Restoring factory setting of axis %d!\n", axisNo_);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Attention - Restoring factory setting of axis %d!\n", axisNo_);
 	pasynInt32SyncIO->write(r31_, 0x1235, 500);
 	pasynInt32SyncIO->write(r7_, 0x7000, 500);
 	pasynInt32SyncIO->write(r31_, 0, 500);
@@ -590,7 +589,7 @@ asynStatus BeckAxis::hardReset() {
  * Restore the Beckhoff module to the values saved in static memory
  */
 asynStatus BeckAxis::softReset() {
-	printf("Attention - Restoring saved setting of axis %d!\n", axisNo_);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Attention - Restoring saved setting of axis %d!\n", axisNo_);
 	pasynInt32SyncIO->write(r31_, 0x1235, 500);
 	pasynInt32SyncIO->write(r7_, 0x8000, 500);
 	pasynInt32SyncIO->write(r31_, 0, 500);
@@ -602,7 +601,7 @@ asynStatus BeckAxis::softReset() {
  * Set general parameters
  */
 asynStatus BeckAxis::init(bool encoder, bool watchdog) {
-	printf("-%s(%d, %d)\n", __FUNCTION__, encoder, watchdog);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%d, %d)\n", __FUNCTION__, encoder, watchdog);
 
 	//reset precedent errors
 	pasynUInt32DigitalSyncIO->write(controlByte_, 0x40, 0x40, 500);
@@ -618,7 +617,7 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 
 	pasynUInt32DigitalSyncIO->read(r32_, &featureReg, 0x881e, 500);
 	if (featureReg!=value) {
-		printf("-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r32_, value, 0x881e, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
@@ -628,7 +627,7 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	value = 0x8;	//enable idle
 	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x8, 500);
 	if (featureReg!=value) {
-		printf("-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r52_, value, 0x8, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
@@ -648,7 +647,7 @@ asynStatus BeckAxis::directMove(int newPos, int goCmd) {
 	movePend=true;
 	setIntegerParam(pC_->motorStatusDone_, false);
 	callParamCallbacks();
-	printf("-starting position:\t%10.2f\n", currPos);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-starting position:\t%10.2f\n", currPos);
 	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
 }
@@ -666,7 +665,7 @@ asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
 
 
 
-	printf("Moving out of limit switch!\n");
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Moving out of limit switch!\n");
 	while (*activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !(*inactiveSwitch)) {
 		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
 		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
@@ -676,7 +675,7 @@ asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
 		while (movePend) {
 			epicsThreadSleep(0.05);
 			poll(&moving);
-			printf("-movePend is %d, currPos is %.2f\n", movePend, currPos);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
 		}
 	}
 	return asynSuccess;
@@ -687,7 +686,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 {
 	//TODO check for overflow in relative mode
 
-	printf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
 
 	//This to prevent to put movePend to 1 if cannot move
 	if (movePend) return asynSuccess;
@@ -701,14 +700,14 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 	if (lLow) {
 		if (newPos < currPos) {
-			printf("Already at limit switch in negative direction!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Already at limit switch in negative direction!\n");
 			return asynSuccess;
 		} else {
 			exitLimSw(true, newPos);
 		}
 	} else if (lHigh) {
 		if (newPos > currPos) {
-			printf("Already at limit switch in positive direction!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Already at limit switch in positive direction!\n");
 			return asynSuccess;
 		} else {
 			exitLimSw(true, newPos);
@@ -733,7 +732,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 //Method to execute the homing
 asynStatus BeckAxis::home(double min_velocity, double max_velocity, double acceleration, int forwards){
-	printf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
 	epicsUInt32 featureReg;
 	bool forward = forwards;
 	bool moving;
@@ -747,13 +746,13 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 	//set feature register 2 to set homing direction
 	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x1, 500);
 	if (featureReg!=forward) {
-		printf("-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", featureReg, forward);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", featureReg, forward);
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
 		epicsUInt32 tmp;
 		pasynUInt32DigitalSyncIO->read(r52_, &tmp, 0x1, 500);
-		printf("Actually written: %d\n", tmp);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Actually written: %d\n", tmp);
 	}
 
 	//update status
@@ -767,7 +766,7 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 
 	movePend=true;
 	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
-	printf("Homing started!! ----------------------------------------------------\n");
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Homing started!! ----------------------------------------------------\n");
 
 	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
 	lastDir = forward ? -1 : 1;
@@ -800,10 +799,10 @@ asynStatus BeckAxis::poll(bool *moving) {
 	if (partialLLow != lLow) {
 		if (lLowRepetitions >= topRepetitions) {
 			lLowRepetitions = 1;
-			printf("-lLow changed state!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-lLow changed state!\n");
 		} else {
 			lLowRepetitions++;
-			printf("lLow is %d for the %d time!\n", partialLLow, lLowRepetitions);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"lLow is %d for the %d time!\n", partialLLow, lLowRepetitions);
 		}
 	} else if (lLowRepetitions < topRepetitions) {
 		lLowRepetitions = 0;
@@ -812,10 +811,10 @@ asynStatus BeckAxis::poll(bool *moving) {
 	if (partialLHigh != lHigh) {
 		if (lHighRepetitions >= topRepetitions) {
 			lHighRepetitions = 1;
-			printf("-lHigh changed state!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-lHigh changed state!\n");
 		} else {
 			lHighRepetitions++;
-			printf("-lHigh is %d for the %d time!\n", partialLHigh, lHighRepetitions);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-lHigh is %d for the %d time!\n", partialLHigh, lHighRepetitions);
 		}
 	} else if (lHighRepetitions < topRepetitions) {
 		lHighRepetitions = 0;
@@ -842,7 +841,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 			//update position in order to set it as updated as possible when putting motorDone to 1
 			updateCurrentPosition();
 			setDoubleParam(pC_->motorPosition_, currPos);
-			printf("-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
 		}
 		movePend = !moveDone;
 		*moving = moveDone;
@@ -851,7 +850,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 		ready = statusByte & 0x1;
 		setIntegerParam(pC_->motorStatusPowerOn_, ready);
 	} else {
-		printf("Warning: registry access - mutex violated!\n");
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: registry access - mutex violated!\n");
 	}
 
 	//set direction status
@@ -912,11 +911,11 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		token = strtok(NULL, s);
 	}
 
-	printf("Interested axis: ");
+	epicsStdoutPrintf("Interested axis: ");
 	for (i=0; i<axisListLen; i++) {
-		printf("%d ", axisNumbers[i]);
+		epicsStdoutPrintf("%d ", axisNumbers[i]);
 	}
-	printf("\n");
+	epicsStdoutPrintf("\n");
 
 	//create a beckAxis instance for each axis in list
 	int k=0;
@@ -956,7 +955,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 2: epicsScanDouble(autoHoldinCurrStr, &autoHoldinCurr);
 			case 1: epicsScanDouble(maxCurrStr, &maxCurr); break;
 			default: {
-				printf ("Wrong number of parameters: %d!\n", nPar);
+				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
 				return 0;
 			}
 
@@ -989,7 +988,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 2: epicsScanDouble(watchdogStr, &watchdog);
 			case 1: epicsScanDouble(encoderStr, &encoder); break;
 			default: {
-				printf ("Wrong number of parameters: %d!\n", nPar);
+				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
 				return 0;
 			}
 		}
@@ -1030,7 +1029,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 2: epicsScanDouble(NCcontactsStr, &NCcontacts);
 			case 1: epicsScanDouble(refPositionStr, &refPosition); break;
 			default: {
-				printf ("Wrong number of parameters: %d!\n", nPar);
+				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
 				return 0;
 			}
 		}
@@ -1052,7 +1051,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 2: epicsScanDouble(stepPerRevolutionStr, &stepPerRevolution);
 			case 1: epicsScanDouble(microstepPerStepStr, &microstepPerStep); break;
 			default: {
-				printf ("Wrong number of parameters: %d!\n", nPar);
+				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
 				return 0;
 			}
 		}
