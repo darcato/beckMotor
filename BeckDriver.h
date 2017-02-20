@@ -104,8 +104,6 @@ friend class BeckController;
 class epicsShareClass BeckController : public asynMotorController {
 protected:
   char *beckDriverPName_;
-  epicsMutex modbusMutex;
-
 
 public:
   BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod );

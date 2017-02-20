@@ -92,6 +92,7 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 
 	//else check which modbus register
 	} else if (pasynUser->reason == statusByteIndx_){
+		writeProc(controlByte_[axis], controlByteValue_[axis]);  //to switch to process view
 		return readProc(statusByte_[axis], 1, value);
 		//printf("Read Status Byte - 0x%x\n", *value);
 

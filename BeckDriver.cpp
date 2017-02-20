@@ -29,7 +29,7 @@ June 17, 2016
 #include "BeckDriver.h"
 
 #define OUTOFSWITCH_STEPS 200
-#define TOP_REPETITIONS 3
+#define TOP_REPETITIONS 1
 
 #include <vector>
 #include <cmath>
@@ -660,8 +660,10 @@ asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
 	bool *activeSwitch = lHigh ? &lHigh : &lLow;
 	bool *inactiveSwitch = lHigh ? &lLow : &lHigh;
 
-	printf("Moving out of limit switch!");
-	while (activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !inactiveSwitch) {
+
+
+	printf("Moving out of limit switch!\n");
+	while (*activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !(*inactiveSwitch)) {
 		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
 		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
 			middlePos=newPos;
@@ -824,19 +826,8 @@ asynStatus BeckAxis::poll(bool *moving) {
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
-	//prepare environment for reading status
-	pC_->modbusMutex.lock();
-	if (!movePend) {
-		pasynInt32SyncIO->write(controlByte_, 0x21, 500);
-	}
-	else{
-		pasynInt32SyncIO->write(controlByte_, 0x25, 500);
-		printf("-current position:\t%10.2f\n", currPos);
-	}
-
 	//set status
 	pasynInt32SyncIO->read(statusByte_, &statusByte, 500);
-	pC_->modbusMutex.unlock();
 	regAccess = statusByte & 0x80;
 	if(!regAccess) { //should never be one, but just in case...
 		error = statusByte & 0x40;
