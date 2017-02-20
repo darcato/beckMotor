@@ -515,8 +515,12 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	}
 
 	if (emergencyAccl>=0){
-		printf("-R50: 0x%04x \t emergency acceleration\n", (int) emergencyAccl);
-		pasynInt32SyncIO->write(r50_, (int) emergencyAccl, 500);
+		pasynInt32SyncIO->read(r50_, &oldValue, 500);
+		if (oldValue!=((int) emergencyAccl)){
+			printf("-R50: 0x%04x -> 0x%04x \t emergency acceleration\n", oldValue, (int) emergencyAccl);
+			pasynInt32SyncIO->write(r50_, (int) emergencyAccl, 500);
+		}
+
 	}
 
 	if (homeAtStartup!=0) {
