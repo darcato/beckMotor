@@ -44,11 +44,11 @@ BeckPortDriver::BeckPortDriver(const char *portName, int nAxis, const char *inMo
 	char name[10];
 	int tmp;
 	createParam("R00", asynParamInt32, &roffset);
-	printf("Create parameter %s with reason %d\n", "R00", roffset);
+	printf("Create %d parameters with reason offset of %d\n", KL2541_N_REG, roffset);
 	for (int i=1; i < KL2541_N_REG; i++){
 		sprintf(name, "R%02i", i);
 		createParam(name, asynParamInt32, &tmp);
-		printf("Create parameter %s with reason %d\n", name, tmp);
+		//printf("Create parameter %s with reason %d\n", name, tmp);
 	}
 
 	//create a parameter for the modbus registers
