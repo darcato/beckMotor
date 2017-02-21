@@ -911,26 +911,23 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		token = strtok(NULL, s);
 	}
 
-	epicsStdoutPrintf("Interested axis: ");
-	for (i=0; i<axisListLen; i++) {
-		epicsStdoutPrintf("%d ", axisNumbers[i]);
-	}
-	epicsStdoutPrintf("\n");
-
 	//create a beckAxis instance for each axis in list
 	int k=0;
 	BeckAxis *axis[axisListLen];
+	epicsStdoutPrintf("Interested axis: ");
 	for (i=0; i<axisListLen; i++) {
+		epicsStdoutPrintf("%d ", axisNumbers[i]);
 		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
 		if (tmp != NULL) {
 			axis[i-k] = tmp;
 		}
 		else {
-			epicsStdoutPrintf("Cannot find axis %d!\n", axisNumbers[i]);
+			epicsStdoutPrintf("-notFound ");
 			k++;
 		}
 	}
 	axisListLen -= k;
+	epicsStdoutPrintf("\n");
 
 	//Now parse commands, and apply to list of axis
 	if (strcmp(cmd, "initCurrents") == 0) {
