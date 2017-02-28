@@ -914,20 +914,19 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 	//create a beckAxis instance for each axis in list
 	int k=0;
 	BeckAxis *axis[axisListLen];
-	epicsStdoutPrintf("Interested axis: ");
+
 	for (i=0; i<axisListLen; i++) {
-		epicsStdoutPrintf("%d ", axisNumbers[i]);
 		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
 		if (tmp != NULL) {
 			axis[i-k] = tmp;
 		}
 		else {
-			epicsStdoutPrintf("-notFound ");
+			epicsStdoutPrintf("Axis %d notFound ", axisNumbers[i]);
 			k++;
 		}
 	}
 	axisListLen -= k;
-	epicsStdoutPrintf("\n");
+
 
 	//Now parse commands, and apply to list of axis
 	if (strcmp(cmd, "initCurrents") == 0) {
@@ -958,19 +957,29 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 
 		}
 
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
 		}
+		epicsStdoutPrintf("\n");
+
 	}
 	else if (strcmp(cmd, "softReset") ==0 ) {
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->softReset();
 		}
+		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "hardReset") ==0 ) {
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->hardReset();
 		}
+		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "init") ==0 ) {
 		char *encoderStr=0;
@@ -990,9 +999,12 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			}
 		}
 
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->init((bool) encoder, (bool) watchdog);
 		}
+		epicsStdoutPrintf("\n");
 
 	}
 	else if (strcmp(cmd, "initHomingParams") ==0 ) {
@@ -1031,9 +1043,12 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			}
 		}
 
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
 		}
+		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "initStepResolution") ==0 ) {
 		char *microstepPerStepStr;
@@ -1053,9 +1068,12 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			}
 		}
 
+		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
+			epicsStdoutPrintf("%d ", axisNumbers[i]);
 			axis[i]->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
 		}
+		epicsStdoutPrintf("\n");
 	}
 	else {
 		epicsStdoutPrintf("BeckConfigController: Command \"%s\" not found!\n", cmd);
@@ -1112,6 +1130,4 @@ extern "C" {
 }
 
 
-//TODO:check initial movement
-//TODO:enable modification of 3 times for antibounce
 //TODO:check negative high values when converting uint-int
