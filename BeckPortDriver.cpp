@@ -1,3 +1,4 @@
+
 /*
  * BeckPortDriver.cpp
  *
@@ -288,7 +289,7 @@ asynStatus BeckPortDriver::readProc(asynInt32Client *modbusReg, bool in, epicsIn
 		triggerReadIn_.write(0);
 		newDataIn_.readWait(value);
 	} else {
-		epicsStdoutPrintf("Warning, interruptions not yet allowed... skipping reading!\n");
+		epicsStdoutPrintf("Warning, interruptions not allowed... skipping reading!\n");
 		return asynError;
 	}
 	return modbusReg->read(value);

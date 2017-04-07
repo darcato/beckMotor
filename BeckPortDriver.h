@@ -91,6 +91,5 @@ private:
 	asynStatus writeProc(asynInt32Client *modbusReg, epicsInt32 value);
 	asynStatus readProc(asynInt32Client *modbusReg, bool in, epicsInt32 *value);
 
-
 };
 
