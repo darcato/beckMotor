@@ -1,11 +1,29 @@
-
-/*
- * BeckPortDriver.cpp
+/**
+ *  BeckPortDriver.cpp
+ *  An epics port to access beckhoff process data registers and internal ones
+ *  directly. Implementing asynInt32 and asynUInt32 interfaces.
  *
- *  Created on: Jul 14, 2016
- *      Author: Davide Marcato
- *      Mail: davide.marcato@lnl.infn.it
- */
+ *  Created on: July 14, 2016
+ *      Authors: Damiano Bortolato, Davide Marcato.
+ *      Mail: damiano.bortolato@lnl.infn.it davide.marcato@lnl.infn.it
+ *      Project: SPES project at Laboratori Nazionali di Legnaro, INFN, Italy
+ *
+ *
+ *  This file is part of Beckhoff KL2541 device support for epics motor.
+ *
+ *  This device support is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This device support is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this device support.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #include "BeckPortDriver.h"
 #include <epicsExport.h>

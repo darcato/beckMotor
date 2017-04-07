@@ -1,9 +1,28 @@
-/*
- * BeckDriver.h
+/**
+ *  BeckDriver.h
+ *  Implementation of record motor API to support beckhoff KL2541 stepper motor driver
  *
- *  Created on: Jun 17, 2016
- *      Author: davide.marcato@lnl.infn.it
- */
+ *  Created on: June 17, 2016
+ *      Authors: Damiano Bortolato, Davide Marcato.
+ *      Mail: damiano.bortolato@lnl.infn.it davide.marcato@lnl.infn.it
+ *      Project: SPES project at Laboratori Nazionali di Legnaro, INFN, Italy
+ *
+ *
+ *  This file is part of Beckhoff KL2541 device support for epics motor.
+ *
+ *  This device support is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This device support is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this device support.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #ifndef MOTORAPP_BECKHOFFSRC_BECKDRIVER_H_
 #define MOTORAPP_BECKHOFFSRC_BECKDRIVER_H_
