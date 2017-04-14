@@ -94,7 +94,7 @@ BeckAxis* BeckController::getAxis(int axisNo)
 
 void BeckController::report(FILE *fp, int level)
 {
-	fprintf(fp, "Beckoff motor controller %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
+	fprintf(fp, "Beckhoff motor controller %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
 	this->portName, 1, movingPollPeriod_, idlePollPeriod_);
 
 	// Call the base class method
@@ -332,7 +332,7 @@ void BeckAxis::report(FILE *fp, int level) {
 
 //a convenient function to read the current position, stored in currPos
 asynStatus BeckAxis::updateCurrentPosition() {
-	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and ricombinated
+	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
 	pasynInt32SyncIO->read(r0_, &pLow, 500);
 	pasynInt32SyncIO->read(r1_, &pHigh, 500);
 	currPos = pLow + (pHigh<<16);
