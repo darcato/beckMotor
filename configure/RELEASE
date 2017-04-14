@@ -21,11 +21,13 @@
 
 TEMPLATE_TOP=$(EPICS_BASE)/templates/makeBaseApp/top
 
-# If using the sequencer, point SNCSEQ at its top directory:
-#SNCSEQ=$(EPICS_BASE)/../modules/soft/seq
+ASYN=$(EPSUP)/asyn4-29/
+
+# Generic Motor record support (R6-9 Tested)
+MOTOR=$(EPSUP)/motorR6-9/
 
 # EPICS_BASE usually appears last so other apps can override stuff:
-EPICS_BASE=/opt/epics/Modules/base-3.14.12.5
+EPICS_BASE=$(EPSUP)/base-3.14.12.5
 
 # Set RULES here if you want to take build rules from somewhere
 # other than EPICS_BASE:
