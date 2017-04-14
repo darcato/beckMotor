@@ -1,0 +1,8 @@
+*~
+*.log
+*.project
+*.cproject
+*.metadata
+*.pyc
+*.pydevproject
+.*
