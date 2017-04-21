@@ -93,3 +93,22 @@ HOW TO USE:
     - stepPerRevolution: how many step per full revolution
 
 8) Implement a database using controller port name for the motor records (as DTYP) and driver port name for others.
+-motor record example:
+	#the main record for the motor
+	record (motor, "Motor01") {
+	    field (DESC, "main record of the motor")
+	    field (DTYP, "asynMotor")
+	    field (OUT, "@asyn("motorController", $(NCHAN), $(TMOUT))")
+	    field (VMAX, "51200") #max settable velo
+	    field (VELO, 12800)    #mstep/s
+	    field (VBAS, "100")    #starting velocity before accl
+	    field (ACCL, 0.3)    #accl time from vbas to velo
+	    field (BACC, 0.5)    #backlash acceleration
+	    field (HVEL, 5000)
+	    field (S, 1)       #speed: revolutions per second
+	    field (PINI, "1")
+	    field (DHLM, "2000000000")
+	    field (DLLM, "-2000000000")
+	    field (SREV, "12800")    #step per revolution
+	    field (SYNC, 1)
+	}
