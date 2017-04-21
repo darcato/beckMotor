@@ -1,9 +1,9 @@
 HOW TO USE:
 
 0) Add to your configure/RELEASE asyn, modbus and motor (the one with beckhoff support):
-    ASYN=$(EPSUP)/asyn4-29
-    MODBUS=$(EPSUP)/modbus-R2-8
-    MOTOR=/home/user/epics/iocs/motorR6-9
+    ASYN=$(SUPPORT)/asyn4-29
+    MODBUS=$(SUPPORT)/modbus-R2-8
+    MOTOR=$(SUPPORT)/motorR6-9
 
 1) Include in your src makefile modbus module (1.8+ required), asyn and motor dbd and libs. The required are:
     yourIocName_DBD += asyn.dbd
@@ -92,4 +92,4 @@ HOW TO USE:
     - microstepPerStep: how many microstep per step to set
     - stepPerRevolution: how many step per full revolution
 
-8) Implement a database using controller port name for the motor records (as DTYP) and driver port name for others (but try to avoid using it!).
+8) Implement a database using controller port name for the motor records (as DTYP) and driver port name for others.
