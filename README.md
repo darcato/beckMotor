@@ -8,10 +8,10 @@ Laboratori Nazionali di Legnaro - INFN
 
 ## Introduction
 
-This the implementation of a motor record device support, via API model 3, for the Beckhoff KL2541. It is a stepper motor driver with up to 5A/ph current, limit switches and encoder support.
+This is the implementation of a motor record device support, via API model 3, for the Beckhoff KL2541. It is a stepper motor driver with up to 5A/ph current, limit switches and encoder support.
 One or more modules can be physically attached to the beckhoff KL9100, which has two switched ethernet ports and exposes the module's registers to a modbus TCP port.
 So this driver will use the epics modbus module as the lower communication channel. The KL2541 has two kinds of register, the "process communication" ones, which are just 
-6 modbus registers (3 read + 3 write) and the "register communication" ones, which are 64 internal register with motor parameters and can be accesed through a series of 
+6 modbus registers (3 read + 3 write) and the "register communication" ones, which are 64 internal registers with motor parameters and can be accesed through a series of 
 read/writes to the modbus registers.
 So we implemented an asynPortDriver port (called "motorDriver") to mask the various kinds of registers, and then implemented the motor record support 
 (called "motorController", sorry!) reading and writing to the motorDriver port.
@@ -20,6 +20,8 @@ So we implemented an asynPortDriver port (called "motorDriver") to mask the vari
 Absolute and relative movement, automatically stop at limit switches and prevent wrong direction, homing, static setup at startup.
 **Not implemented**: encoder reading.
 
+**WARNING:** remember to correctly configure limit switches (NC/NO contacts; which limit switch, low or high in movement coordinates, is connected to the first input) before starting operations, to avoid damages.
+
 ### Distribution
 This device support is distributed as a separate module, which uses the epics motor module, in order to keep the two separated. This was discussed in some tech-talks threads as a good 
 practice for the future of the motor record development.
@@ -27,6 +29,7 @@ However it could be easily integrated in the main motor record repository.
 The whole program is released under the GPL license.
 
 ### Required modules
+0. epics base (tested with 3.14.12.5)
 1. asyn (tested with R4-30, should work with not-too-old releases)
 2. modbus (R2.8+)
 3. motor (tested with R6-9)
@@ -69,14 +72,14 @@ yourIocName_LIBS += beckMotor
 
 1. Now let's move to **st.cmd**. Create a ip port:
 ```
-#drvAsynIPPortConfigure(portName, hostInfo, priority, noAutoConnect, noProcessEos)
-drvAsynIPPortConfigure("EK9100_3", "172.16.17.3:502", 0, 0, 1)
+#drvAsynIPPortConfigure(portName,  hostInfo,          priority, noAutoConnect, noProcessEos)
+drvAsynIPPortConfigure("EK9100_3", "172.16.17.3:502", 0,        0,             1)
 ```
 
 1. Create a modbus interpose port from modbus module
 ```
-#modbusInterposeConfig(portName, linkType, timeoutMsec, writeDelayMsec)
-modbusInterposeConfig("EK9100_3", 0, 2000, 0)
+#modbusInterposeConfig(portName,  linkType, timeoutMsec, writeDelayMsec)
+modbusInterposeConfig("EK9100_3", 0,        2000,        0)
 ```
 
 1. Create 2 modbus ports, one for the input registers and one for the output ones
@@ -89,20 +92,24 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
         drvModbusAsynConfigure("outRegs",  "EK9100_3",   1,         6,     0x800,     48,     0,        50,      "Beckhoff");
         ```
 1. Create a driver port from the beckhoff support
-    - This is the lower layer of the driver which translates read/write with particular reasons to a sequence of instruction to mascherate the readings of internal registers and modbus ones. The supported reasons are:
-        - SB - r/w statusByte or 1st register of input port
-        - DI - r/w dataIn or 2nd register of input port
-        - SW - r/w statusWord or 3rd register of input port
-        - CB - r/w controlByte or 1st register of output port
-        - DO - r/w dataOut or 2nd register of output port
-        - CW - r/w controlWord or 3rd register of output port
-        - from R00 to R63 -r/w corresponding internal register
-    - This port implements asynInt32 and asynUInt32Digital interfaces and can be used directly in records for r/w operation. However it may broke upper motor support due to concurrency. If you can try to never write with this port.
-        - The syntax is:
+    - This is the lower layer of the driver which translates read/write with particular reasons to a sequence of instruction to mask the readings of internal registers and modbus ones. The supported reasons are:
+        
+        | reason     | meaning           | purpose           |
+        | --------   | -------           | -------           |
+        | SB         | statusByte        | read/write statusByte,  1st register of input port  |
+        | DI         | dataIn            | read/write dataIn,      2nd register of input port  |
+        | SW         | statusWord        | read/write statusWord,  3rd register of input port  |
+        | CB         | controlByte       | read/write controlByte, 1st register of ouput port  |
+        | DO         | dataOut           | read/write dataOut,     2nd register of ouput port  |
+        | CW         | controlWord       | read/write controlWord, 3rd register of ouput port  |
+        | R00 -> R63 | internal register | read/write corresponding internal register          |
+    - This port implements asynInt32 and asynUInt32Digital interfaces and can be used directly in records for r/w operation. 
+    Remember that some registers are write protected to reduce the stress on non-volatile memory: you first need to write to 0x1235 to register 31.
+        - The syntax to create the port is:
         
         ```
-        #BeckCreateDriver("portName",numberOfBeckModules, "inpModbusPort", "outmodbusPort")
-        BeckCreateDriver("motorDriver",2, "inpRegs", "outRegs")`
+        #BeckCreateDriver("portName",   numberOfBeckModules, "inpModbusPort", "outmodbusPort")
+        BeckCreateDriver("motorDriver", 2,                    "inpRegs",      "outRegs")
         ```
         - where the numberOfBeckModules is the number of consecutive kl2541 to control
     
@@ -110,8 +117,8 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
     - This is a port of type asynMotor and offers support to motor record.
     
     ```
-    #BeckCreateController("portName", "driverPortName", movingPollms, idlePollms) 
-    BeckCreateController("motorController", "motorDriver", 10, 100) `
+    #BeckCreateController("portName",       "driverPortName", movingPollms, idlePollms) 
+    BeckCreateController("motorController", "motorDriver",    10,           100) 
     ```
     - where the last two values refers to the ms between a poll of the status of the module when moving and when still
     
@@ -128,8 +135,8 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
         - #### INIT
             
             ```
-            #BeckConfigController(controller, axisRange, init, "encoder, watchdog");
-            BeckConfigController("motorController", "0-1", init, "0, 0");
+            #BeckConfigController(controller,       axisRange, init, "encoder, watchdog");
+            BeckConfigController("motorController", "0-1",     init, "0,       0");
             ```
             - encoder: [0/1] if an encoder is to be used. Up to now encoder is not supported, write 0.
             - whatchdog: [0/1] if a watchdog is to be used. 
@@ -137,8 +144,8 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
         - #### INIT CURRENTS
             
             ```
-            #BeckConfigController(controller, axisRange, initCurrents, "maxCurr, autoHoldinCurr, highAccCurr, lowAccCurrStr");
-            BeckConfigController("motorController", "0-1", initCurrents, "1, 0.2");
+            #BeckConfigController(controller,       axisRange, initCurrents, "maxCurr, autoHoldinCurr, highAccCurr, lowAccCurrStr");
+            BeckConfigController("motorController", "0-1",     initCurrents, "1,       0.2");
             ```
             - maxCurr: the maximum ampere of your motor
             - autoHoldinCurr: ampere when still
@@ -148,8 +155,8 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
         - #### INIT HOMING PARAMS
             
             ```
-            #BeckConfigController(controller, axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl");
-            BeckConfigController("motorController", "0-1", initHomingParams, "0, 0, 0, 0, 100, 100, 2047");
+            #BeckConfigController(controller,       axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl");
+            BeckConfigController("motorController", "0-1",  initHomingParams,    "0,           0,          0,         0,             100,         100,           2047");
             ```
             - refPosition: the value of the position to set when homing complete
             - NCcontacts: [0/1] if the contacts are normally closed or not
@@ -162,8 +169,8 @@ modbusInterposeConfig("EK9100_3", 0, 2000, 0)
         - #### INIT STEP RESOLUTION
             
             ```
-            #BeckConfigController(controller, axisRange, initStepResolution, "microstepPerStep, stepPerRevolution");
-            BeckConfigController("motorController", "0-1", initStepResolution, "64, 200");
+            #BeckConfigController(controller,       axisRange, initStepResolution, "microstepPerStep, stepPerRevolution");
+            BeckConfigController("motorController", "0-1",     initStepResolution, "64,               200");
             ```
             - microstepPerStep: how many microstep per step to set
             - stepPerRevolution: how many step per full revolution
