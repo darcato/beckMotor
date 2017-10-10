@@ -9,7 +9,7 @@ Laboratori Nazionali di Legnaro - INFN
 ## Introduction
 
 This is the implementation of a motor record device support, via API model 3, for the Beckhoff KL2541. It is a stepper motor driver with up to 5A/ph current, limit switches and encoder support.
-One or more modules can be physically attached to the beckhoff KL9100, which has two switched ethernet ports and exposes the module's registers to a modbus TCP port.
+One or more modules can be physically attached to the beckhoff BK9100, which has two switched ethernet ports and exposes the module's registers to a modbus TCP port.
 So this driver will use the epics modbus module as the lower communication channel. The KL2541 has two kinds of register, the "process communication" ones, which are just 
 6 modbus registers (3 read + 3 write) and the "register communication" ones, which are 64 internal registers with motor parameters and can be accesed through a series of 
 read/writes to the modbus registers.
@@ -49,7 +49,7 @@ The whole program is released under the GPL license.
 ```
 ASYN=$(SUPPORT)/asyn4-29
 MODBUS=$(SUPPORT)/modbus-R2-8
-MOTOR=$(SUPPORT)/motorR6-9
+MOTOR=$(SUPPORT)/motorR6-9 (
 BECKMOTOR=$(SUPPORT)/beckMotor
 ```
 
@@ -83,7 +83,7 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
 ```
 
 1. Create 2 modbus ports, one for the input registers and one for the output ones
-    - Its width must be at least 6*n where n is the number of consecutive bechoff kl2541 modules
+    - Its width must be at least 3*n where n is the number of consecutive bechoff kl2541 modules
     - The poll time should be 0 for the input port (disable polling, triggering readings when needed), and positive for the output one (update initial value at startup)
     
         ```
