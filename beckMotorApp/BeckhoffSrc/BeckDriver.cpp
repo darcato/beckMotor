@@ -654,6 +654,8 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 
 //simply move toward newPos with goCmd (may be 0x5 not to check limSw or 0x25 to check them)
 asynStatus BeckAxis::directMove(int newPos, int goCmd) {
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, 0x%x)\n", __FUNCTION__, newPos, goCmd);
+
 	//set new position where to go
 	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
 	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
@@ -670,6 +672,7 @@ asynStatus BeckAxis::directMove(int newPos, int goCmd) {
 
 //exit from the limit switches performing n steps and then checking until out
 asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, %i)\n", __FUNCTION__, usePos, newPos);
 	if (!(lHigh or lLow)) {
 		return asynSuccess;
 	}
@@ -1098,7 +1101,56 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 	return(asynSuccess);
 }
 
+extern "C" int BeckDumpRegs(const char *driverName, const int axis)
+{
+	char *beckDriverPName_;
+	static const char *functionName = "BeckDumpRegs";
+	beckDriverPName_ = (char *) mallocMustSucceed(strlen(driverName)+1, "Malloc failed\n");
+	strcpy(beckDriverPName_, driverName);
+	asynUser *reg;
+	asynStatus status;
+	char name[10];
+	epicsInt32 val;
 
+	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "SB");
+	if (status) {
+		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+	pasynInt32SyncIO->read(reg, &val, 500);
+	epicsStdoutPrintf("%s: 0x%04x\n", "SB", val);
+
+	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "SW");
+	if (status) {
+		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+	pasynInt32SyncIO->read(reg, &val, 500);
+	epicsStdoutPrintf("%s: 0x%04x\n", "SW", val);
+
+	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "CB");
+	if (status) {
+		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+	pasynInt32SyncIO->read(reg, &val, 500);
+	epicsStdoutPrintf("%s: 0x%04x\n", "CB", val);
+
+	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "CW");
+	if (status) {
+		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+	pasynInt32SyncIO->read(reg, &val, 500);
+	epicsStdoutPrintf("%s: 0x%04x\n", "CW", val);
+
+	for (int i=1; i < 64; i++){
+		sprintf(name, "R%02i", i);
+		status = pasynInt32SyncIO->connect(driverName, axis, &reg, name);
+		if (status) {
+			epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
+		}
+		pasynInt32SyncIO->read(reg, &val, 500);
+		epicsStdoutPrintf("%s: 0x%04x\n", name, val);
+	}
+    return asynSuccess;
+}
 
 
 
@@ -1118,6 +1170,9 @@ static const iocshArg BeckConfigControllerArg1 = {"Axis Range", iocshArgString};
 static const iocshArg BeckConfigControllerArg2 = {"Command", iocshArgString};
 static const iocshArg BeckConfigControllerArg3 = {"CommandArgs", iocshArgString};
 
+static const iocshArg BeckDumpRegsArg0 = {"Driver", iocshArgString};
+static const iocshArg BeckDumpRegsArg1 = {"Axis", iocshArgInt};
+
 static const iocshArg * const BeckCreateControllerArgs[] = {&BeckCreateControllerArg0,
 															&BeckCreateControllerArg1,
 															&BeckCreateControllerArg2,
@@ -1126,9 +1181,12 @@ static const iocshArg * const BeckConfigControllerArgs[] = {&BeckConfigControlle
 															&BeckConfigControllerArg1,
 															&BeckConfigControllerArg2,
 															&BeckConfigControllerArg3};
+static const iocshArg * const BeckDumpRegsArgs[] = {&BeckDumpRegsArg0,
+													&BeckDumpRegsArg1};
 
 static const iocshFuncDef BeckCreateControllerDef = {"BeckCreateController", 4, BeckCreateControllerArgs};
 static const iocshFuncDef BeckConfigControllerDef = {"BeckConfigController", 4, BeckConfigControllerArgs};
+static const iocshFuncDef BeckDumpRegsDef = {"BeckDumpRegs", 2, BeckDumpRegsArgs};
 
 static void BeckCreateControllerCallFunc(const iocshArgBuf *args) {
 	BeckCreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival);
@@ -1136,10 +1194,14 @@ static void BeckCreateControllerCallFunc(const iocshArgBuf *args) {
 static void BeckConfigControllerCallFunc(const iocshArgBuf *args) {
 	BeckConfigController(args[0].sval, args[1].sval, args[2].sval, args[3].sval);
 }
+static void BeckDumpRegsCallFunc(const iocshArgBuf *args) {
+	BeckDumpRegs(args[0].sval, args[1].ival);
+}
 
 static void BeckRegister(void) {
 	iocshRegister(&BeckCreateControllerDef, BeckCreateControllerCallFunc);
 	iocshRegister(&BeckConfigControllerDef, BeckConfigControllerCallFunc);
+	iocshRegister(&BeckDumpRegsDef, BeckDumpRegsCallFunc);
 }
 extern "C" {
 	epicsExportRegistrar(BeckRegister);
