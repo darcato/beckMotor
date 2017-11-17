@@ -792,6 +792,15 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 	return asynSuccess;
 }
 
+//Method to stop motor movement
+asynStatus BeckAxis::stop(double acceleration){
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f)\n", __FUNCTION__, acceleration);
+	//epicsStdoutPrintf("STOP\n");
+
+	return asynSuccess;
+}
+
+
 //Poller to update motor status on the record
 asynStatus BeckAxis::poll(bool *moving) {
 	epicsInt32 statusByte, statusWord;

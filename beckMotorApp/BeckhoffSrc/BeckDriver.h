@@ -46,7 +46,7 @@ public:
   asynStatus move(double position, int relative, double min_velocity, double max_velocity, double acceleration);
 //  asynStatus moveVelocity(double min_velocity, double max_velocity, double acceleration);
   asynStatus home(double min_velocity, double max_velocity, double acceleration, int forwards); //this may become goUp goDown
-//  asynStatus stop(double acceleration);
+  asynStatus stop(double acceleration);
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setClosedLoop(bool closedLoop);
   asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
