@@ -1103,10 +1103,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 
 extern "C" int BeckDumpRegs(const char *driverName, const int axis)
 {
-	char *beckDriverPName_;
 	static const char *functionName = "BeckDumpRegs";
-	beckDriverPName_ = (char *) mallocMustSucceed(strlen(driverName)+1, "Malloc failed\n");
-	strcpy(beckDriverPName_, driverName);
 	asynUser *reg;
 	asynStatus status;
 	char name[10];
