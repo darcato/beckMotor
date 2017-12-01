@@ -106,6 +106,7 @@ private:
   epicsUInt32 lLowRepetitions, lHighRepetitions, topRepetitions;
   bool limitSwitchDownIsInputOne;
   epicsInt32 microstepPerStep;
+  double curr_min_velo, curr_max_velo, curr_acc;
 
   //util methods
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);

@@ -268,7 +268,7 @@ asynStatus BeckPortDriver::writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32
 			readbackValue = value;
 			writeProc(controlByte_[axis], 0x80);
 		}
-		if (readbackValue == value) {
+		if (readbackValue == value) {  //if read back what I wrote: success -> exit
 			writeProc(dataOut_[axis], 0x0);
 			return asynSuccess;
 		}

@@ -319,6 +319,9 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	lLowRepetitions = topRepetitions+1;
 	lHighRepetitions = topRepetitions+1;
 	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
+	curr_min_velo = 0;
+	curr_max_velo = 0;
+	curr_acc = 0;
 
 	//give current to the motor (enable)
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
@@ -346,10 +349,20 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
 	max_velocity = max_velocity * 0.016384;
 	acceleration = acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
 
-	pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
-	pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
-	pasynInt32SyncIO->write(r40_, (int) acceleration, 500);
-	pasynInt32SyncIO->write(r58_, (int) acceleration, 500);
+	if (min_velocity!=curr_min_velo) {
+		curr_min_velo = min_velocity;
+		pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
+	}
+	if (max_velocity!=curr_max_velo) {
+		curr_max_velo = max_velocity;
+		pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
+	}
+	if (acceleration!=curr_acc) {
+		curr_acc = acceleration;
+		pasynInt32SyncIO->write(r40_, (int) acceleration, 500);
+		pasynInt32SyncIO->write(r58_, (int) acceleration, 500);
+	}
+	
 	return asynSuccess;
 }
 
