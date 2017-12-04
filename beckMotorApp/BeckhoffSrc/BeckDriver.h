@@ -1,8 +1,9 @@
 /**
- *  BeckDriver.h
- *  Implementation of record motor API to support beckhoff KL2541 stepper motor driver
+ *  BeckPortDriver.h
+ *  An epics port to access beckhoff process data registers and internal ones
+ *  directly. Implementing asynInt32 and asynUInt32 interfaces.
  *
- *  Created on: June 17, 2016
+ *  Created on: July 14, 2016
  *      Authors: Damiano Bortolato, Davide Marcato.
  *      Mail: damiano.bortolato@lnl.infn.it davide.marcato@lnl.infn.it
  *      Project: SPES project at Laboratori Nazionali di Legnaro, INFN, Italy
@@ -24,117 +25,90 @@
  *  along with this device support.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef MOTORAPP_BECKHOFFSRC_BECKDRIVER_H_
-#define MOTORAPP_BECKHOFFSRC_BECKDRIVER_H_
-
-#include "asynMotorController.h"
-#include "asynMotorAxis.h"
+#include <asynPortDriver.h>
 #include <asynPortClient.h>
-#include "BeckPortDriver.h"
+#include <asynUInt32Digital.h>
+#include <vector>
+#include <epicsEvent.h>
 
-/**
- * -------------------------------------------------
- * AXIS
- * -------------------------------------------------
- */
-class epicsShareClass BeckAxis : public asynMotorAxis {
+int getBeckMaxAddr(const char *portName);
+
+//a classs to trigger a modbus read and wait for new data before returning
+//use write to trigger and readWait to read new data
+class asynInt32ClientSyncIO : public asynInt32Client {
+private:
+	epicsEvent event_;
+	epicsInt32 value_;
+	asynStatus status_;
+	static void newvaluecb(void *userPvt, asynUser *pasynUser, epicsInt32 data) {
+		asynInt32ClientSyncIO *obj=static_cast<asynInt32ClientSyncIO *>(userPvt);
+		obj->value_ = data;
+		obj->status_ = asynSuccess;  //TODO: propagate status
+		obj->event_.signal();
+	}
+
 public:
-  /* These are the methods we override from the base class */
-  BeckAxis(class BeckController *pC, int axis);
+	asynInt32ClientSyncIO(const char *portName, int addr, const char *drvInfo, double timeout=DEFAULT_TIMEOUT)
+	    : asynInt32Client(portName, addr, drvInfo, timeout),
+		  event_(epicsEventEmpty),
+		  value_(0),
+		  status_(asynSuccess)
+	{
+		registerInterruptUser(asynInt32ClientSyncIO::newvaluecb);
+	}
+	asynStatus readWait(epicsInt32 *ret){
+		event_.wait();
+		*ret = value_;
+		return status_;
+	}
 
-  void report(FILE *fp, int level);
-  asynStatus move(double position, int relative, double min_velocity, double max_velocity, double acceleration);
-//  asynStatus moveVelocity(double min_velocity, double max_velocity, double acceleration);
-  asynStatus home(double min_velocity, double max_velocity, double acceleration, int forwards); //this may become goUp goDown
-  asynStatus stop(double acceleration);
-  asynStatus poll(bool *moving); //pool and read infos from beckhoff
-//  asynStatus setClosedLoop(bool closedLoop);
-  asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
-  asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl);
-  asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
-  asynStatus hardReset();
-  asynStatus softReset();
-  asynStatus init(bool encoder, bool watchdog);
+
+};
+
+
+class BeckPortDriver : public asynPortDriver {
+protected:
+	int statusByteIndx_;
+	int dataInIndx_;
+	int statusWordIndx_;
+	int controlByteIndx_;
+	int dataOutIndx_;
+	int controlWordIndx_;
+
+	int roffset;
+
+	std::vector<asynInt32Client *> statusByte_;
+	std::vector<asynInt32Client *> dataIn_;
+	std::vector<asynInt32Client *> statusWord_;
+	std::vector<asynInt32Client *> controlByte_;
+	std::vector<asynInt32Client *> dataOut_;
+	std::vector<asynInt32Client *> controlWord_;
+
+	std::vector<epicsUInt32> controlByteValue_;
+	std::vector<epicsUInt32> dataOutValue_;
+	std::vector<epicsUInt32> controlWordValue_;
+
+	std::vector<bool> controlByteInitialized_;
+	std::vector<bool> dataOutInitialized_;
+	std::vector<bool> controlWordInitialized_;
+
+	//user to trigger an immediate reading of all the input modbus port, with each reagister updated
+	asynInt32Client triggerReadIn_;
+	//call readWait on this to wait for new data to be read by modbusIO
+	asynInt32ClientSyncIO newDataIn_;
+
+public:
+	BeckPortDriver(const char *portName, int nCtrl, const char *inModbusPort, const char *outModbusPort);
+	asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
+	asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
+	asynStatus readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask);
+	asynStatus writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask);
 
 private:
-  asynStatus updateCurrentPosition();
-  asynStatus directMove(int position, int goCmd);
-  asynStatus exitLimSw(bool usePos, int newPos);
+	asynStatus writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 value);
+	asynStatus readReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 *value);
+	asynStatus writeProc(asynInt32Client *modbusReg, epicsInt32 value);
+	asynStatus readProc(asynInt32Client *modbusReg, bool in, epicsInt32 *value);
 
-  BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
-                                   *   Abbreviated because it is used very frequently */
-
-  //asynUsers representing modbus registers
-  asynUser *statusByte_;
-  asynUser *dataIn_;
-  asynUser *statusWord_;
-  asynUser *controlByte_;
-  asynUser *dataOut_;
-  asynUser *controlWord_;
-
-  //asynUsers representing internal registers
-  asynUser *r0_;
-  asynUser *r1_;
-  asynUser *r2_;
-  asynUser *r3_;
-  asynUser *r7_;
-  asynUser *r8_;
-  asynUser *r31_;
-  asynUser *r32_;
-  asynUser *r33_;
-  asynUser *r35_;
-  asynUser *r36_;
-  asynUser *r38_;
-  asynUser *r39_;
-  asynUser *r40_;
-  asynUser *r42_;
-  asynUser *r43_;
-  asynUser *r44_;
-  asynUser *r46_;
-  asynUser *r50_;
-  asynUser *r52_;
-  asynUser *r53_;
-  asynUser *r54_;
-  asynUser *r55_;
-  asynUser *r56_;
-  asynUser *r58_;
-
-  //a flag to indicate end of movement
-  bool movePend;
-  double currPos, lastDir;
-  bool lHigh, lLow;
-  epicsUInt32 lLowRepetitions, lHighRepetitions, topRepetitions;
-  bool limitSwitchDownIsInputOne;
-  epicsInt32 microstepPerStep;
-  double curr_min_velo, curr_max_velo, curr_acc;
-
-  //util methods
-  asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
-
-friend class BeckController;
 };
 
-
-
-/**
- * -------------------------------------------------
- * CONTROLLER
- * -------------------------------------------------
- */
-class epicsShareClass BeckController : public asynMotorController {
-protected:
-  char *beckDriverPName_;
-
-public:
-  BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod );
-
-  void report(FILE *fp, int level);
-  BeckAxis* getAxis(asynUser *pasynUser);
-  BeckAxis* getAxis(int axisNo);
-
-  friend class BeckAxis;
-  friend BeckController * findBeckControllerByName(const char *name);
-};
-
-
-#endif /* MOTORAPP_BECKHOFFSRC_BECKDRIVER_H_ */

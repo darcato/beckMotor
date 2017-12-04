@@ -17,7 +17,7 @@ beckMotor_DBD += devBeckMotor.dbd
 
 # Beckhoff KL2541 driver support.
 beckMotor_SRCS += BeckDriver.cpp
-beckMotor_SRCS += BeckPortDriver.cpp
+beckMotor_SRCS += BeckController.cpp
 
 beckMotor_LIBS += motor
 beckMotor_LIBS += asyn
