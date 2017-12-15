@@ -36,7 +36,9 @@
 //#include <unistd.h> //for usleep
 
 #define KL2541_N_REG 64
-#define MAX_TRY 2
+#define CB 0
+#define DO 1
+#define CW 2
 
 //a vector to store a reference to each driver created
 static std::vector<BeckPortDriver *> _drivers;
@@ -45,11 +47,11 @@ static std::vector<BeckPortDriver *> _drivers;
 int getBeckMaxAddr(const char *portName) {
 	for(std::vector<BeckPortDriver *>::iterator i=_drivers.begin(); i != _drivers.end(); i++) {
 		if(strcmp((*i)->portName, portName) == 0) {
-			epicsStdoutPrintf("getBeckMaxAddr -- OK: found: %d controllers!\n",(*i)->maxAddr);
+			epicsStdoutPrintf("getBecknAxis_ -- OK: found: %d controllers!\n",(*i)->maxAddr);
 			return (*i)->maxAddr;
 		}
 	}
-	epicsStdoutPrintf("getBeckMaxAddr -- Error: Cannot find the underlying port!\n");
+	epicsStdoutPrintf("getBecknAxis_ -- Error: Cannot find the underlying port!\n");
 	return -1;
 }
 
@@ -62,6 +64,9 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	//  triggerReadIn_(inModbusPort, 0, "MODBUS_READ"),
 	//  newDataIn_(inModbusPort, 0, "MODBUS_DATA")
 {
+	nAxis_ = nAxis;     //how many KL2541 are stacked together
+	nRegs_ = 3*nAxis_;  //each KL2541 has 3 registers in input, and 3 in output
+
 	//create a parameter (representing the reason) for each internal register
 	char name[10];
 	int tmp;
@@ -73,14 +78,14 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	}
 
 	//create a parameter for the modbus registers -- ORDER IS IMPORTANT  --if you add one, change KL2541_N_REG+8 with updated num above
-	createParam("SB", asynParamInt32, &statusByteIndx_);
-	createParam("DI", asynParamInt32, &dataInIndx_);
-	createParam("SW", asynParamInt32, &statusWordIndx_);
-	createParam("CB", asynParamInt32, &controlByteIndx_);
-	createParam("DO", asynParamInt32, &dataOutIndx_);
-	createParam("CW", asynParamInt32, &controlWordIndx_);
-	createParam("MI", asynParamInt32, &memoryInIndx_);
-	createParam("MO", asynParamInt32, &memoryOutIndx_);
+	createParam("SB", asynParamInt32, &statusByteReas_);
+	createParam("DI", asynParamInt32, &dataInReas_);
+	createParam("SW", asynParamInt32, &statusWordReas_);
+	createParam("CB", asynParamInt32, &controlByteReas_);
+	createParam("DO", asynParamInt32, &dataOutReas_);
+	createParam("CW", asynParamInt32, &controlWordReas_);
+	createParam("MI", asynParamInt32, &memoryInReas_);
+	createParam("MO", asynParamInt32, &memoryOutReas_);
 
 	//for each port, connect a client to read or write all the memory
 	inRegs_ = new asynInt32ArrayClient(inModbusPort, startAddr, "MODBUS_DATA");
@@ -97,31 +102,19 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 		dataOut_.push_back(new asynInt32Client(outModbusPort, outAddr+1, "MODBUS_DATA"));
 		controlWord_.push_back(new asynInt32Client(outModbusPort, outAddr+2, "MODBUS_DATA"));
 
-		//epicsUInt32 axisOutRegs[3];
-		//cache.push_back(axisOutRegs)
-		controlByteValue_.push_back(0);
-		dataOutValue_.push_back(0);
-		controlWordValue_.push_back(0);
+		std::array<epicsInt32, 3> axisOutRegs;
+		cache_.push_back(axisOutRegs);
 	}
-
 
 	//get initial values of output values to sync cache at the beginning
 	//then their values will be updated only on writings and a cache will be kept
 	size_t allnIn;  //how many actually read
-	size_t nAllRegs = 3*nAxis;  //There are 3 output registers for each axis (see KL2541 docs) - maxAddr is the num of axis
-	epicsInt32 allRegs[nAllRegs];  //an array to receive the reading of all the output registers
-	epicsStdoutPrintf("pp\n");
-	asynStatus status = outRegs_->read(allRegs, nAllRegs, &allnIn);  //will read all the initial values (not updated with changes from this program)
+	//size_t nAllRegs = 3*nAxis;  //There are 3 output registers for each axis (see KL2541 docs) - nAxis_ is the num of axis
+	//epicsInt32 allRegs[nRegs_][3] = {0};  //an array to receive the reading of all the output registers
+	asynStatus status = outRegs_->read(cache_.data()->data(), nRegs_, &allnIn);  //will read all the initial values (not updated with changes from this program)
 	epicsStdoutPrintf("read\n");
-	if (status != asynSuccess) {
-		epicsStdoutPrintf("exception\n");
-		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "Cannot initialize registers\n");
-		throw std::runtime_error("Cannot initialize registers");
-	}
-	for (size_t axis=0; axis<maxAddr; axis++) {
-		controlByteValue_[axis] = allRegs[3*axis+0];
-		dataOutValue_[axis] = allRegs[3*axis+1];
-		controlWordValue_[axis] = allRegs[3*axis+2];
+	if (status != asynSuccess or allnIn!=nRegs_) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "ERROR: Cannot initialize registers\n");
 	}
 
 }
@@ -138,31 +131,30 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 		return readReg(pasynUser->reason-roffset, axis, value);
 
 	//else check which modbus register
-	} else if (pasynUser->reason == statusByteIndx_){
+	} else if (pasynUser->reason == statusByteReas_){
 		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Byte - 0x%x\n", *value);
-		controlByte_[axis]->write(controlByteValue_[axis]);  //to switch to process view
 		return statusByte_[axis]->read(value);
 
-	} else if (pasynUser->reason == dataInIndx_){
+	} else if (pasynUser->reason == dataInReas_){
 		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read DataIn - 0x%x\n", *value);
 		return dataIn_[axis]->read(value);
 
-	} else if (pasynUser->reason == statusWordIndx_){
+	} else if (pasynUser->reason == statusWordReas_){
 		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Word - 0x%x\n", *value);
 		return statusWord_[axis]->read(value);
 
 	//for the output modbus register I return a saved value because they can be read only one time
 	//this means this driver must be the only one accessing those registers
-	} else if (pasynUser->reason == controlByteIndx_){
-		*value = controlByteValue_[axis];
+	} else if (pasynUser->reason == controlByteReas_){
+		*value = cache_[axis][CB];
 		return asynSuccess;
 
-	} else if (pasynUser->reason == dataOutIndx_){
-		*value = dataOutValue_[axis];
+	} else if (pasynUser->reason == dataOutReas_){
+		*value = cache_[axis][DO];
 		return asynSuccess;
 
-	} else if (pasynUser->reason == controlWordIndx_){
-		*value = controlWordValue_[axis];
+	} else if (pasynUser->reason == controlWordReas_){
+		*value = cache_[axis][CW];
 		return asynSuccess;
 
 	//cannot recognize reason
@@ -184,19 +176,19 @@ asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value) {
 		return writeReg(pasynUser->reason-roffset, axis, value);
 
 	//if a modbus register
-	} else if (pasynUser->reason == controlByteIndx_){
+	} else if (pasynUser->reason == controlByteReas_){
 		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Control Byte - 0x%x\n", value);
-		controlByteValue_[axis] = value;
+		cache_[axis][CB] = value;
 		return controlByte_[axis]->write(value);
 
-	} else if (pasynUser->reason == dataOutIndx_){
+	} else if (pasynUser->reason == dataOutReas_){
 		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write DataOut - 0x%x\n", value);
-		dataOutValue_[axis] = value;
+		cache_[axis][DO] = value;
 		return dataOut_[axis]->write(value);
 
-	} else if (pasynUser->reason == controlWordIndx_){
+	} else if (pasynUser->reason == controlWordReas_){
 		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Control Word - 0x%x\n", value);
-		controlWordValue_[axis] = value;
+		cache_[axis][CW] = value;
 		return controlWord_[axis]->write(value);
 
 	//cannot write to input registers, sorry.
@@ -259,14 +251,12 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//modbus input registers
 	//read all of them (efficient) and return only the interesting ones
-	} else if (pasynUser->reason == statusByteIndx_ or pasynUser->reason == dataInIndx_ or pasynUser->reason == statusWordIndx_){
+	} else if (pasynUser->reason == statusByteReas_ or pasynUser->reason == dataInReas_ or pasynUser->reason == statusWordReas_){
 		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Byte - 0x%x\n", *value);
 		size_t allnIn;  //how many actually read
-		size_t nAllRegs = 3*maxAddr;  //There are 3 input registers for each axis (see KL2541 docs) - maxAddr is the num of axis
-		printf("nAllRegs: %d\n", nAllRegs);
-		epicsInt32 allRegs[3*maxAddr];  //an array to receive the reading of all the input registers
-		size_t whichReg = pasynUser->reason - statusByteIndx_;  //0=statusByte, 1=DataIn, 2=statusWord
-		status = inRegs_->read(allRegs, 3*maxAddr, &allnIn);
+		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
+		size_t whichReg = pasynUser->reason - statusByteReas_;  //0=statusByte, 1=DataIn, 2=statusWord
+		status = inRegs_->read(allRegs, nRegs_, &allnIn);
 		if (status != asynSuccess) {
 			return status;
 		}
@@ -278,39 +268,32 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//for the output modbus register I return a saved value because they can be read only one time
 	//this means this driver must be the only one accessing those registers
-	} else if (pasynUser->reason == controlByteIndx_){
+	} else if (pasynUser->reason == controlByteReas_ or pasynUser->reason == dataOutReas_ or pasynUser->reason == controlWordReas_){
 		*nIn=0; //will accumulate here the num of elements in value
-		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<maxAddr; axis++) {
-			value[(*nIn)++] = controlByteValue_[axis];
-		}
-		return asynSuccess;
-	} else if (pasynUser->reason == dataOutIndx_){
-		*nIn=0; //will accumulate here the num of elements in value
-		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<maxAddr; axis++) {
-			value[(*nIn)++] = dataOutValue_[axis];
-		}
-		return asynSuccess;
-	} else if (pasynUser->reason == controlWordIndx_){
-		*nIn=0; //will accumulate here the num of elements in value
-		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<maxAddr; axis++) {
-			value[(*nIn)++] = controlWordValue_[axis];
+		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<nAxis_; axis++) {
+			value[(*nIn)++] = cache_[axis][pasynUser->reason-controlByteReas_];
 		}
 		return asynSuccess;
 
 	//reding the whole memory in input
-	} else if (pasynUser->reason == memoryInIndx_){
+	} else if (pasynUser->reason == memoryInReas_){
 		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Input - 0x%x\n", *value);
-		if (nElements>3*maxAddr) {
-			nElements = 3*maxAddr;
+		size_t allnIn;  //how many actually read
+		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
+		status = inRegs_->read(allRegs, nRegs_, &allnIn);
+		if (status != asynSuccess) {
+			return status;
 		}
-		return inRegs_->read(value, nElements, nIn);
+		*nIn=0; //will accumulate here the num of elements in value
+		for (size_t i=3*axisFrom; *nIn<nElements && i<allnIn; i++) {
+			value[(*nIn)++]=allRegs[i];
+		}
+		return asynSuccess;
 
 	//reding the whole memory in output (cache)
-	} else if (pasynUser->reason == memoryOutIndx_){
-		for (*nIn=0; *nIn<nElements && axisFrom+(*nIn)/3<maxAddr; (*nIn)++){
-			//get the value of control Byte if this is the first register of the axis, dataOut for the second and controlWord for the third
-			value[*nIn] = (int(*nIn%3==0))*controlByteValue_[axisFrom+*nIn/3] + int(*nIn%3==1)*dataOutValue_[axisFrom+*nIn/3] + int(*nIn%3==2)*controlWordValue_[axisFrom+*nIn/3];
-			//printf("el %d is %d    --%d  --%d  --%d\n", *nIn, value[*nIn], controlByteValue_[axisFrom+*nIn/3], dataOutValue_[axisFrom+*nIn/3], controlWordValue_[axisFrom+*nIn/3]);
+	} else if (pasynUser->reason == memoryOutReas_){
+		for (size_t *nIn=0; *nIn<nElements && axisFrom+*nIn/3<nAxis_ && *nIn<nRegs_; (*nIn)++) {
+			value [(*nIn)++] = cache_[axisFrom+(*nIn)/3][(*nIn)%3];  //return cache
 		}
 		return asynSuccess;
 
@@ -330,35 +313,31 @@ asynStatus BeckPortDriver::writeInt32Array(asynUser *pasynUser, epicsInt32 *valu
 
 	//if an internal register
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
 		return writeRegArray(pasynUser->reason-roffset, axisFrom, nElements, value);
 
 	//if a modbus register
-	} else if (pasynUser->reason == controlByteIndx_ or pasynUser->reason == dataOutIndx_ or pasynUser->reason == controlWordIndx_){
-		epicsInt32 outVal[3*maxAddr];
-		for (size_t axis=0; axis<maxAddr; axis++) {
-			outVal[3*axis+0] = controlByteValue_[axis];
-			outVal[3*axis+1] = dataOutValue_[axis];
-			outVal[3*axis+2] = controlWordValue_[axis];
-			if (axis>=axisFrom && axis-axisFrom<nElements){
-				outVal[3*axis+pasynUser->reason-controlByteIndx_] = value[axis-axisFrom];  //replace the old values with new ones
-				controlByteValue_[axis] = outVal[3*axis+0];  //updated the cached values (only one will be different)
-				dataOutValue_[axis] = outVal[3*axis+1];
-				controlWordValue_[axis] = outVal[3*axis+2];
+	} else if (pasynUser->reason == controlByteReas_ or pasynUser->reason == dataOutReas_ or pasynUser->reason == controlWordReas_){
+		for (size_t axis=axisFrom; axis<axisFrom+nElements && axis<nAxis_; axis++) {
+			for (int reg=0; reg<3; reg++){
+				if (reg==pasynUser->reason-controlByteReas_) { //replace the old values with new ones
+					cache_[axis][reg] = value[axis-axisFrom];  //only for interested axis and only on selected reg
+				}
 			}
 		}
-		return outRegs_->write(outVal, 3*maxAddr);
+		return outRegs_->write(cache_.data()->data(), nRegs_);
 
 	//writing the whole memory in output
-	} else if (pasynUser->reason == memoryOutIndx_){
-		return outRegs_->write(value, nElements);
+	} else if (pasynUser->reason == memoryOutReas_){
+		for (size_t i=0; i<nElements && axisFrom+i/3<nAxis_ && i<nRegs_; i++) {
+			cache_[axisFrom+i/3][i%3] = value[i];  //update cache
+		}
+		return outRegs_->write(cache_.data()->data(), nRegs_);
 
 	//cannot write to input registers, sorry.
 	} else {
 		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Error: Wrong reason!\n");
 		return asynError;
 	}
-
 }
 
 /**
@@ -386,11 +365,11 @@ asynStatus BeckPortDriver::writeReg(size_t regN, size_t axis, epicsInt32 value) 
 	if (status!=asynSuccess) {                     //I cannot directly reset controlByte, or it will start moving with velocity dataOut)
 		return status;
 	}
-	status = dataOut_[axis]->write(dataOutValue_[axis]);  //reset to previous dataOut
+	status = dataOut_[axis]->write(cache_[axis][DO]);  //reset to previous dataOut
 	if (status!=asynSuccess) {
 		return status;
 	}
-	status = controlByte_[axis]->write(controlByteValue_[axis]);  //reset to previous controlByte
+	status = controlByte_[axis]->write(cache_[axis][CB]);  //reset to previous controlByte
 	if (status!=asynSuccess) {
 		return status;
 	}
@@ -415,7 +394,7 @@ asynStatus BeckPortDriver::readReg(size_t regN, size_t axis, epicsInt32 *value )
 	if (status!=asynSuccess) {
 		return status;
 	}
-	status = controlByte_[axis]->write(controlByteValue_[axis]);
+	status = controlByte_[axis]->write(cache_[axis][CB]);
 	if (status!=asynSuccess) {
 		return status;
 	}
@@ -427,28 +406,22 @@ asynStatus BeckPortDriver::writeRegArray(size_t regN, size_t axisFrom, size_t ax
 	epicsInt32 writeCmd = regN + 0xC0;
 	asynStatus status = asynSuccess;
 
-	epicsInt32 writingVals[3*maxAddr];  //output values used to write the desired inner registers
-	epicsInt32 backToProcVals[3*maxAddr];  //output values used to restore the process data comunication
-	for (size_t axis=0; axis<maxAddr; axis++) {
-		if (axis>=axisFrom && axis-axisFrom<axisAmount){
-			writingVals[3*axis+0] = writeCmd;  //controlByte
-			writingVals[3*axis+1] = value[axis-axisFrom];  //dataOut
-		} else {
-			writingVals[3*axis+0] = controlByteValue_[axis];  //controlByte
-			writingVals[3*axis+1] = dataOutValue_[axis];  //dataOut
+	epicsInt32 writingVals[nAxis_][3];  //output values used to write the desired inner registers
+	for (size_t axis=0; axis<nAxis_; axis++) {
+		if (axis>=axisFrom && axis-axisFrom<axisAmount){  //if interested axes
+			writingVals[axis][CB] = writeCmd;  //controlByte
+			writingVals[axis][DO] = value[axis-axisFrom];  //dataOut
+		} else {  //leave them as cached
+			writingVals[axis][CB] = cache_[axis][CB];  //controlByte
+			writingVals[axis][DO] = cache_[axis][DO];  //dataOut
 		}
-		writingVals[3*axis+2] = controlWordValue_[axis];  //controlWord
-
-		backToProcVals[3*axis+0] = controlByteValue_[axis];  //controlByte
-		backToProcVals[3*axis+1] = dataOutValue_[axis];  //dataOut
-		backToProcVals[3*axis+2] = controlWordValue_[axis];  //controlWord
-
+		writingVals[axis][CW] = cache_[axis][CW];  //controlWord
 	}
-	status = outRegs_->write(writingVals, 3*maxAddr);
+	status = outRegs_->write(writingVals[0], nRegs_);
 	if (status!=asynSuccess) {
 		return status;
 	}
-	status = outRegs_->write(backToProcVals, 3*maxAddr);
+	status = outRegs_->write(cache_.data()->data(), nRegs_); //restore process data mode
 	if (status!=asynSuccess) {
 		return status;
 	}
@@ -461,40 +434,34 @@ asynStatus BeckPortDriver::readRegArray(size_t regN, size_t axisFrom, size_t axi
 	epicsInt32 readCmd = regN + 0x80;
 	size_t readnIn;
 
-	epicsInt32 writingVals[3*maxAddr];  //output values used to write the desired inner registers
-	epicsInt32 backToProcVals[3*maxAddr];  //output values used to restore the process data comunication
-	epicsInt32 readValues[3*maxAddr];
-	for (size_t axis=0; axis<maxAddr; axis++) {
-		if (axis>=axisFrom && axis-axisFrom<axisAmount){
-			writingVals[3*axis+0] = readCmd;  //controlByte
+	epicsInt32 writingVals[nAxis_][3];  //output values used to write the desired inner registers
+	epicsInt32 readValues[nAxis_][3];
+	for (size_t axis=0; axis<nAxis_; axis++) {
+		if (axis>=axisFrom && axis-axisFrom<axisAmount){  //if interested axes
+			writingVals[axis][CB] = readCmd;  //controlByte
 		} else {
-			writingVals[3*axis+0] = controlByteValue_[axis];  //controlByte
+			writingVals[axis][CB] = cache_[axis][CB];  //controlByte
 		}
-		writingVals[3*axis+1] = dataOutValue_[axis];  //controlWord
-		writingVals[3*axis+2] = controlWordValue_[axis];  //controlWord
-
-		backToProcVals[3*axis+0] = controlByteValue_[axis];  //controlByte
-		backToProcVals[3*axis+1] = dataOutValue_[axis];  //dataOut
-		backToProcVals[3*axis+2] = controlWordValue_[axis];  //controlWord
-
+		writingVals[axis][DO] = cache_[axis][DO];  //dataOut
+		writingVals[axis][CW] = cache_[axis][CW];  //controlWord
 	}
 
-	status = outRegs_->write(writingVals, 3*maxAddr);
+	status = outRegs_->write(writingVals[0], nRegs_);
 	if (status!=asynSuccess) {
 		return status;
 	}
-	status = inRegs_->read(readValues, 3*maxAddr, &readnIn);
+	status = inRegs_->read(readValues[0], nRegs_, &readnIn);
 	if (status!=asynSuccess) {
 		return status;
 	}
-	status = outRegs_->write(backToProcVals, 3*maxAddr);
+	status = outRegs_->write(cache_.data()->data(), nRegs_); //restore process data mode
 	if (status!=asynSuccess) {
 		return status;
 	}
 
 	//return the values read from dataIn
-	for ((*nIn)=0; axisFrom+(*nIn)<maxAddr && (*nIn)<axisAmount && 3*axisFrom+3*(*nIn)+1<readnIn; (*nIn)++) {
-		value[*nIn] = readValues[3*axisFrom+3*(*nIn)+1];  //regN values
+	for ((*nIn)=0; axisFrom+(*nIn)<nAxis_ && (*nIn)<axisAmount && 3*axisFrom+3*(*nIn)+1<readnIn; (*nIn)++) {  //nIn := axis
+		value[*nIn] = readValues[3*axisFrom+3*(*nIn)][1];  //regN values are found in read dataIn (offset 1)
 	}
 	//NOTE: this function must leave the controller in process data mode
 	return asynSuccess;

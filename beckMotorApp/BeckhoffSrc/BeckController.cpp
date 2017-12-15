@@ -139,6 +139,7 @@ asynStatus BeckController::poll() {
 	pasynInt32ArraySyncIO->read(r1_, r1_cache, numAxes_, &nin, 500);
 	pasynInt32ArraySyncIO->read(statusByte_, statusByte_cache, numAxes_, &nin, 500);
 	pasynInt32ArraySyncIO->read(statusWord_, statusWord_cache, numAxes_, &nin, 500);
+	return asynSuccess;
 }
 
 
