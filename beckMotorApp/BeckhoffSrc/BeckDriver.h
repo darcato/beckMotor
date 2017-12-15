@@ -29,6 +29,7 @@
 #include <asynPortClient.h>
 #include <asynUInt32Digital.h>
 #include <vector>
+#include <array>
 #include <epicsEvent.h>
 
 int getBeckMaxAddr(const char *portName);
@@ -74,6 +75,8 @@ protected:
 	int controlByteIndx_;
 	int dataOutIndx_;
 	int controlWordIndx_;
+	int memoryInIndx_;
+	int memoryOutIndx_;
 
 	int roffset;
 
@@ -84,31 +87,28 @@ protected:
 	std::vector<asynInt32Client *> dataOut_;
 	std::vector<asynInt32Client *> controlWord_;
 
+	asynInt32ArrayClient *inRegs_;
+	asynInt32ArrayClient *outRegs_;
+
+	//std::vector< std::array<epicsUInt32, 3> > cache;
 	std::vector<epicsUInt32> controlByteValue_;
 	std::vector<epicsUInt32> dataOutValue_;
 	std::vector<epicsUInt32> controlWordValue_;
 
-	std::vector<bool> controlByteInitialized_;
-	std::vector<bool> dataOutInitialized_;
-	std::vector<bool> controlWordInitialized_;
-
-	//user to trigger an immediate reading of all the input modbus port, with each reagister updated
-	asynInt32Client triggerReadIn_;
-	//call readWait on this to wait for new data to be read by modbusIO
-	asynInt32ClientSyncIO newDataIn_;
-
 public:
-	BeckPortDriver(const char *portName, int nCtrl, const char *inModbusPort, const char *outModbusPort);
+	BeckPortDriver(const char *portName, int startAddr, int nAxes, const char *inModbusPort, const char *outModbusPort);
 	asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
 	asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
 	asynStatus readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask);
 	asynStatus writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask);
+	asynStatus readInt32Array(asynUser *pasynUser, epicsInt32 *value, size_t nElements, size_t *nIn);
+	asynStatus writeInt32Array(asynUser *pasynUser, epicsInt32 *value, size_t nElements);
 
 private:
-	asynStatus writeReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 value);
-	asynStatus readReg(epicsInt32 regN, epicsInt32 axis, epicsInt32 *value);
-	asynStatus writeProc(asynInt32Client *modbusReg, epicsInt32 value);
-	asynStatus readProc(asynInt32Client *modbusReg, bool in, epicsInt32 *value);
-
+	asynStatus writeReg(size_t regN, size_t axis, epicsInt32 value);
+	asynStatus readReg(size_t regN, size_t axis, epicsInt32 *value);
+	asynStatus writeRegArray(size_t regN, size_t axisFrom, size_t axisAmount, epicsInt32 *value);
+	asynStatus readRegArray(size_t regN, size_t axisFrom, size_t axisAmount, epicsInt32 *value, size_t *nIn);
+	asynStatus initializeOutputValues();
 };
 
