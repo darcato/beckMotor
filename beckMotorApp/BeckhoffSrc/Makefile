@@ -3,7 +3,7 @@ TOP = ../..
 include $(TOP)/configure/CONFIG
 
 # The following are used for debugging messages.
-USR_CXXFLAGS += -DDEBUG
+USR_CXXFLAGS += -DDEBUG -std=c++11
 
 #will create a support called beckmotor
 LIBRARY_IOC += beckMotor

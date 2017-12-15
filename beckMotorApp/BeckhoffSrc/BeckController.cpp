@@ -34,6 +34,7 @@
 #include <epicsThread.h>
 
 #include <asynInt32SyncIO.h>
+#include <asynInt32ArraySyncIO.h>
 #include <asynUInt32Digital.h>
 #include <asynUInt32DigitalSyncIO.h>
 
@@ -63,6 +64,9 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 						 1, // autoconnect
 						 0, 0)	// Default priority and stack size
 {
+	asynStatus status;
+	static const char *functionName = "BeckController::BeckController";
+
 	BeckAxis *pAxis; //set but not used not to be eliminated by compiler
 
 	beckDriverPName_ = (char *) mallocMustSucceed(strlen(beckDriverPName)+1, "Malloc failed\n");
@@ -76,6 +80,34 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	for (i=0; i<nAxis; i++){
 		pAxis = new BeckAxis(this, i);
 		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Axis n: %d successfully created\n", i);
+	}
+
+	//arrays to keep values polled from the controller
+	//the axis pollers will read this instead of doing modbus I/O -> single big readings instead of small ones = efficiency
+	r0_cache = new epicsInt32[nAxis];
+	r1_cache = new epicsInt32[nAxis];
+	statusByte_cache = new epicsInt32[nAxis];
+	statusWord_cache = new epicsInt32[nAxis];
+
+	// Connect to modbus input registers through the underlying driver
+	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &statusByte_, "SB");
+	if (status) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &statusWord_, "SW");
+	if (status) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &r0_, "R00");
+	if (status) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
+	}
+
+	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &r1_, "R01");
+	if (status) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
 	}
 
 	//start the poller of each axis with two polling times: while the axis is moving and while it is not
@@ -100,6 +132,15 @@ void BeckController::report(FILE *fp, int level)
 	// Call the base class method
 	asynMotorController::report(fp, level);
 }
+
+asynStatus BeckController::poll() {
+	size_t nin;
+	pasynInt32ArraySyncIO->read(r0_, r0_cache, numAxes_, &nin, 500);
+	pasynInt32ArraySyncIO->read(r1_, r1_cache, numAxes_, &nin, 500);
+	pasynInt32ArraySyncIO->read(statusByte_, statusByte_cache, numAxes_, &nin, 500);
+	pasynInt32ArraySyncIO->read(statusWord_, statusWord_cache, numAxes_, &nin, 500);
+}
+
 
 //function called from iocsh to create a controller and save it into the _controllers vector
 extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
@@ -334,10 +375,12 @@ void BeckAxis::report(FILE *fp, int level) {
 }
 
 //a convenient function to read the current position, stored in currPos
-asynStatus BeckAxis::updateCurrentPosition() {
+asynStatus BeckAxis::updateCurrentPosition() { //TODO: should do modbus IO sometimes??
 	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
-	pasynInt32SyncIO->read(r0_, &pLow, 500);
-	pasynInt32SyncIO->read(r1_, &pHigh, 500);
+	pLow = pC_->r0_cache[axisNo_];
+	pHigh = pC_->r1_cache[axisNo_];
+	//pasynInt32SyncIO->read(r0_, &pLow, 500);
+	//pasynInt32SyncIO->read(r1_, &pHigh, 500);
 	currPos = pLow + (pHigh<<16);
 	return asynSuccess;
 }
@@ -818,6 +861,7 @@ asynStatus BeckAxis::stop(double acceleration){
 
 //Poller to update motor status on the record
 asynStatus BeckAxis::poll(bool *moving) {
+	//epicsStdoutPrintf("-- poll --\n");
 	epicsInt32 statusByte, statusWord;
 	bool regAccess, error, warning, ready, moveDone;
 	bool partialLHigh, partialLLow;
@@ -828,7 +872,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	setDoubleParam(pC_->motorPosition_, currPos);
 
 	//update limit switches
-	pasynInt32SyncIO->read(statusWord_, &statusWord, 500);
+	statusWord = pC_->statusWord_cache[axisNo_];
 
 	if (limitSwitchDownIsInputOne) {
 		partialLHigh = statusWord & 0x2;
@@ -873,7 +917,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
 	//set status
-	pasynInt32SyncIO->read(statusByte_, &statusByte, 500);
+	statusByte = pC_->statusByte_cache[axisNo_];  //read from cache
 	regAccess = statusByte & 0x80;
 	if(!regAccess) { //should never be one, but just in case...
 		error = statusByte & 0x40;
