@@ -142,7 +142,6 @@ asynStatus BeckController::poll() {
 	return asynSuccess;
 }
 
-
 //function called from iocsh to create a controller and save it into the _controllers vector
 extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
 	BeckController *ctrl = new BeckController(portName, beckDriverPName, movingPollPeriod/1000., idlePollPeriod/1000.);
@@ -932,13 +931,13 @@ asynStatus BeckAxis::poll(bool *moving) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
 		}
 		movePend = !moveDone;
-		*moving = moveDone;
+		*moving = movePend;
 		setIntegerParam(pC_->motorStatusDone_, moveDone);
 		loadAngle = statusByte & 0xE;
 		ready = statusByte & 0x1;
 		setIntegerParam(pC_->motorStatusPowerOn_, ready);
 	} else {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Warning: registry access - mutex violated!\n");
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR,"Warning: registry access - mutex violated!\n");
 	}
 
 	//set direction status
