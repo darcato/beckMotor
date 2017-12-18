@@ -47,11 +47,11 @@ static std::vector<BeckPortDriver *> _drivers;
 int getBeckMaxAddr(const char *portName) {
 	for(std::vector<BeckPortDriver *>::iterator i=_drivers.begin(); i != _drivers.end(); i++) {
 		if(strcmp((*i)->portName, portName) == 0) {
-			epicsStdoutPrintf("getBecknAxis_ -- OK: found: %d controllers!\n",(*i)->maxAddr);
+			epicsStdoutPrintf("getBeckMaxAddr -- OK: found: %d controllers!\n",(*i)->maxAddr);
 			return (*i)->maxAddr;
 		}
 	}
-	epicsStdoutPrintf("getBecknAxis_ -- Error: Cannot find the underlying port!\n");
+	epicsStdoutPrintf("getBeckMaxAddr -- Error: Cannot find the underlying port!\n");
 	return -1;
 }
 
@@ -252,7 +252,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 	//modbus input registers
 	//read all of them (efficient) and return only the interesting ones
 	} else if (pasynUser->reason == statusByteReas_ or pasynUser->reason == dataInReas_ or pasynUser->reason == statusWordReas_){
-		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Byte - 0x%x\n", *value);
+		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Input Modbus Register\n");
 		size_t allnIn;  //how many actually read
 		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
 		size_t whichReg = pasynUser->reason - statusByteReas_;  //0=statusByte, 1=DataIn, 2=statusWord
@@ -269,6 +269,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 	//for the output modbus register I return a saved value because they can be read only one time
 	//this means this driver must be the only one accessing those registers
 	} else if (pasynUser->reason == controlByteReas_ or pasynUser->reason == dataOutReas_ or pasynUser->reason == controlWordReas_){
+		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Output Modbus Register\n");
 		*nIn=0; //will accumulate here the num of elements in value
 		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<nAxis_; axis++) {
 			value[(*nIn)++] = cache_[axis][pasynUser->reason-controlByteReas_];
@@ -277,7 +278,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//reding the whole memory in input
 	} else if (pasynUser->reason == memoryInReas_){
-		//asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Input - 0x%x\n", *value);
+		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Input\n");
 		size_t allnIn;  //how many actually read
 		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
 		status = inRegs_->read(allRegs, nRegs_, &allnIn);
@@ -292,11 +293,11 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//reding the whole memory in output (cache)
 	} else if (pasynUser->reason == memoryOutReas_){
-		for (size_t *nIn=0; *nIn<nElements && axisFrom+*nIn/3<nAxis_ && *nIn<nRegs_; (*nIn)++) {
-			value [(*nIn)++] = cache_[axisFrom+(*nIn)/3][(*nIn)%3];  //return cache
+		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Output (cache)\n");
+		for ((*nIn)=0; *nIn<nElements && axisFrom+*nIn/3<nAxis_ && *nIn<nRegs_; (*nIn)++) {
+			value[*nIn] = cache_[axisFrom+(*nIn)/3][(*nIn)%3];  //return cache
 		}
 		return asynSuccess;
-
 
 	//cannot recognize reason
 	} else {
