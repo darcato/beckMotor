@@ -107,7 +107,8 @@ private:
   bool limitSwitchDownIsInputOne;
   epicsInt32 microstepPerStep;
   double curr_min_velo, curr_max_velo, curr_acc;
-
+  int lastr2, lastr3;
+  bool exitingLimSw, homing;
   //util methods
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
 
@@ -123,8 +124,8 @@ friend class BeckController;
  */
 class epicsShareClass BeckController : public asynMotorController {
 
-  asynUser *inputRegs_;
-  asynUser *outputRegs_;
+  //asynUser *inputRegs_;
+  //asynUser *outputRegs_;
   asynUser *statusByte_;
   asynUser *statusWord_;
   asynUser *r0_;

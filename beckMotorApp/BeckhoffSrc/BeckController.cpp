@@ -46,7 +46,6 @@
 #include "BeckController.h"
 
 #define OUTOFSWITCH_STEPS 200
-#define TOP_REPETITIONS 1
 
 #include <vector>
 #include <cmath>
@@ -134,6 +133,7 @@ void BeckController::report(FILE *fp, int level)
 }
 
 asynStatus BeckController::poll() {
+	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "polling...\n");
 	size_t nin;
 	pasynInt32ArraySyncIO->read(r0_, r0_cache, numAxes_, &nin, 500);
 	pasynInt32ArraySyncIO->read(r1_, r1_cache, numAxes_, &nin, 500);
@@ -356,9 +356,6 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 
 	//initialize local parameters
 	movePend=false;
-	topRepetitions = TOP_REPETITIONS;  // when read the limit switch: after topRepetition times that it has a new state, the new state is set
-	lLowRepetitions = topRepetitions+1;
-	lHighRepetitions = topRepetitions+1;
 	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
 	curr_min_velo = 0;
 	curr_max_velo = 0;
@@ -747,11 +744,12 @@ asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
 			middlePos=newPos;
 		}
 		directMove(middlePos, 0x5);
-		while (movePend) {
-			epicsThreadSleep(0.05);
-			poll(&moving);
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
-		}
+		//while (movePend) {
+		//	epicsThreadSleep(0.1);
+		//	pC_->poll();
+		//	poll(&moving);
+		//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
+		//}
 	}
 	return asynSuccess;
 }
@@ -767,41 +765,59 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	if (movePend) return asynSuccess;
 
 	setAcclVelo(min_velocity, max_velocity, acceleration);
+	exitingLimSw = false;
 
 	//update position to have it really up-to-date
-	updateCurrentPosition();
+	//updateCurrentPosition();
 	int newPos = (relative ? currPos : 0 ) + position;
 	if (newPos==currPos) return asynSuccess;
 
 	if (lLow) {
 		if (newPos < currPos) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Already at limit switch in negative direction!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_WARNING,"Already at limit switch in negative direction!\n");
 			return asynSuccess;
 		} else {
-			exitLimSw(true, newPos);
+			exitingLimSw = true;
 		}
 	} else if (lHigh) {
 		if (newPos > currPos) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Already at limit switch in positive direction!\n");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_WARNING,"Already at limit switch in positive direction!\n");
 			return asynSuccess;
 		} else {
-			exitLimSw(true, newPos);
+			exitingLimSw = true;
 		}
 	}
 
-	//now it may have exited the limit switches
-	if ( !(lLow || lHigh) ) {
-		//dont'change last direction until I exit the limit switch
-		//in order to remember the direction that brought us to the lim switch
-		lastDir = (newPos-currPos) / abs(newPos-currPos);
-
-		//move remaining after exiting limit switch or complete movement if already out
-		if (newPos != currPos) {
-			directMove(newPos, 0x25);
-		}
+	int newr2 = newPos & 0xFFFF;
+	int newr3 = (newPos>>16) & 0xFFFF;
+	if (newr2!=lastr2) {
+		pasynInt32SyncIO->write(r2_, newr2, 500);
+		lastr2 = newr2;
+	}
+	if (newr3!=lastr3) {
+		pasynInt32SyncIO->write(r3_, newr3, 500);
+		lastr3 = newr3;
+	}
+	int curr_dataOut;
+	pasynInt32SyncIO->read(dataOut_, &curr_dataOut, 500);  //read from cache
+	if (curr_dataOut!=0){
+		pasynInt32SyncIO->write(dataOut_, 0, 500);
 	}
 
+	int goCmd = exitingLimSw ? 0x5 : 0x25;
 
+	//start movement
+	lastDir = (newPos-currPos) / abs(newPos-currPos);
+	movePend=true;
+	setIntegerParam(pC_->motorStatusDone_, false);
+	callParamCallbacks();
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-starting position:\t%10.2f\n", currPos);
+	int curr_controByte;
+	pasynInt32SyncIO->read(controlByte_, &curr_controByte, 500);  //read from cache
+	if (curr_controByte & 0x4) {  //we need a rising edge on bit 2 of controlByte -- if it is currently at 1, first zero it, then put to 1
+		pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+	}
+	pasynInt32SyncIO->write(controlByte_, goCmd, 500);  //the movement should now start
 	return asynSuccess;
 }
 
@@ -825,13 +841,14 @@ asynStatus BeckAxis::home(double min_velocity, double max_velocity, double accel
 		pasynInt32SyncIO->write(r31_, 0x1235, 500);
 		pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
 		pasynInt32SyncIO->write(r31_, 0, 500);
-		epicsUInt32 tmp;
-		pasynUInt32DigitalSyncIO->read(r52_, &tmp, 0x1, 500);
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Actually written: %d\n", tmp);
+		//epicsUInt32 tmp;
+		//pasynUInt32DigitalSyncIO->read(r52_, &tmp, 0x1, 500);
+		//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Actually written: %d\n", tmp);
 	}
 
 	//update status
-	poll(&moving);
+	//pC_->poll();
+	//poll(&moving);
 
 	//start homing
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
@@ -882,36 +899,12 @@ asynStatus BeckAxis::poll(bool *moving) {
 		partialLLow = statusWord & 0x2;
 	}
 
-	//implement antibounce for inputs
-	if (partialLLow != lLow) {
-		if (lLowRepetitions >= topRepetitions) {
-			lLowRepetitions = 1;
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-lLow changed state!\n");
-		} else {
-			lLowRepetitions++;
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"lLow is %d for the %d time!\n", partialLLow, lLowRepetitions);
-		}
-	} else if (lLowRepetitions < topRepetitions) {
-		lLowRepetitions = 0;
+	if (exitingLimSw && (partialLLow < lLow or partialLHigh < lHigh)) {
+		pasynUInt32DigitalSyncIO->write(controlByte_, 0x20, 0x20, 500);  //enable lim switch auto stop
 	}
 
-	if (partialLHigh != lHigh) {
-		if (lHighRepetitions >= topRepetitions) {
-			lHighRepetitions = 1;
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-lHigh changed state!\n");
-		} else {
-			lHighRepetitions++;
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-lHigh is %d for the %d time!\n", partialLHigh, lHighRepetitions);
-		}
-	} else if (lHighRepetitions < topRepetitions) {
-		lHighRepetitions = 0;
-	}
-	if (lHighRepetitions >= topRepetitions) {
-		lHigh = partialLHigh;
-	}
-	if (lLowRepetitions >=topRepetitions) {
-		lLow = partialLLow;
-	}
+	lHigh = partialLHigh;
+	lLow = partialLLow;
 
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
