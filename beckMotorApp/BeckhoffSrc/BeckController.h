@@ -50,7 +50,7 @@ public:
   asynStatus poll(bool *moving); //pool and read infos from beckhoff
 //  asynStatus setClosedLoop(bool closedLoop);
   asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
-  asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl);
+  asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl);
   asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
   asynStatus hardReset();
   asynStatus softReset();
@@ -58,8 +58,9 @@ public:
 
 private:
   asynStatus updateCurrentPosition();
-  asynStatus directMove(int position, int goCmd);
-  asynStatus exitLimSw(bool usePos, int newPos);
+//  asynStatus directMove(int position, int goCmd);
+//  asynStatus exitLimSw(bool usePos, int newPos);
+  asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
 
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
                                    *   Abbreviated because it is used very frequently */
@@ -103,14 +104,13 @@ private:
   bool movePend;
   double currPos, lastDir;
   bool lHigh, lLow;
-  epicsUInt32 lLowRepetitions, lHighRepetitions, topRepetitions;
   bool limitSwitchDownIsInputOne;
   epicsInt32 microstepPerStep;
-  double curr_min_velo, curr_max_velo, curr_acc;
+  double curr_min_velo, curr_max_velo, curr_home_velo, curr_acc;
+  int curr_forw;
   int lastr2, lastr3;
-  bool exitingLimSw, homing;
-  //util methods
-  asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
+  bool exitingLimSw, startingHome;  //exitingLimSw = move has started, as soon as out of lim switches remember to enable lim switch auto stopping
+                                    //startingHome = exiting limit switches, when out relaunch homing
 
 friend class BeckController;
 };

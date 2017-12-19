@@ -359,7 +359,18 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
 	curr_min_velo = 0;
 	curr_max_velo = 0;
+	curr_home_velo = 0;
 	curr_acc = 0;
+	curr_forw = 0;
+	startingHome = false;
+	exitingLimSw = false;
+	microstepPerStep = 64;
+	lHigh = false;
+	lLow = false;
+	currPos = 0;
+	lastDir = 0;
+	pasynInt32SyncIO->read(r2_, &lastr2, 500);
+	pasynInt32SyncIO->read(r3_, &lastr3, 500);
 
 	//give current to the motor (enable)
 	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
@@ -372,12 +383,10 @@ void BeckAxis::report(FILE *fp, int level) {
 }
 
 //a convenient function to read the current position, stored in currPos
-asynStatus BeckAxis::updateCurrentPosition() { //TODO: should do modbus IO sometimes??
+asynStatus BeckAxis::updateCurrentPosition() {
 	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
 	pLow = pC_->r0_cache[axisNo_];
 	pHigh = pC_->r1_cache[axisNo_];
-	//pasynInt32SyncIO->read(r0_, &pLow, 500);
-	//pasynInt32SyncIO->read(r1_, &pHigh, 500);
 	currPos = pLow + (pHigh<<16);
 	return asynSuccess;
 }
@@ -385,24 +394,22 @@ asynStatus BeckAxis::updateCurrentPosition() { //TODO: should do modbus IO somet
 //convenient function to set acceleration and velocity of the motor
 asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
 	//info at http://infosys.beckhoff.com/italiano.php?content=../content/1040/bk9000/html/bt_bk9000_title.htm&id=259
-	min_velocity = min_velocity * 0.016384;  //vel=mstep/sec/16Mhz*262144
-	max_velocity = max_velocity * 0.016384;
-	acceleration = acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
-
 	if (min_velocity!=curr_min_velo) {
 		curr_min_velo = min_velocity;
-		pasynInt32SyncIO->write(r38_, (int) min_velocity, 500);
+		min_velocity = (int) min_velocity * 0.016384;  //vel=mstep/sec/16Mhz*262144
+		pasynInt32SyncIO->write(r38_, min_velocity, 500);
 	}
 	if (max_velocity!=curr_max_velo) {
 		curr_max_velo = max_velocity;
-		pasynInt32SyncIO->write(r39_, (int) max_velocity, 500);
+		max_velocity = (int) max_velocity * 0.016384;
+		pasynInt32SyncIO->write(r39_, max_velocity, 500);
 	}
 	if (acceleration!=curr_acc) {
 		curr_acc = acceleration;
-		pasynInt32SyncIO->write(r40_, (int) acceleration, 500);
-		pasynInt32SyncIO->write(r58_, (int) acceleration, 500);
+		acceleration = (int) acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
+		pasynInt32SyncIO->write(r40_, acceleration, 500);
+		pasynInt32SyncIO->write(r58_, acceleration, 500);
 	}
-	
 	return asynSuccess;
 }
 
@@ -533,8 +540,8 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
  * To be called by shell command
  * Set parameters for the homing procedure
  */
-asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double speedToHome, double speedFromHome, double emergencyAccl){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%d, %d, %d, %d, %.2f, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
+asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl){
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%d, %d, %d, %d, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, emergencyAccl);
 	epicsInt32 oldValue;
 	epicsUInt32 oldRegister, featureReg;
 
@@ -563,22 +570,13 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 		pasynInt32SyncIO->write(r31_, 0, 500);
 	}
 
-	if (speedToHome>=0){
+	if (homingSpeed>=0){
 		pasynInt32SyncIO->read(r53_, &oldValue, 500);
-		if (oldValue!=((int) speedToHome)){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) speedToHome);
+		if (oldValue!=((int) homingSpeed)){
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) homingSpeed);
 			pasynInt32SyncIO->write(r31_, 0x1235, 500);
-			pasynInt32SyncIO->write(r53_, (int) speedToHome, 500);
-			pasynInt32SyncIO->write(r31_, 0, 500);
-		}
-	}
-
-	if (speedFromHome>=0){
-		pasynInt32SyncIO->read(r54_, &oldValue, 500);
-		if (oldValue!=((int) speedFromHome)){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R54: 0x%04x -> 0x%04x \t speed from home\n", oldValue, (int) speedFromHome);
-			pasynInt32SyncIO->write(r31_, 0x1235, 500);
-			pasynInt32SyncIO->write(r54_, (int) speedFromHome, 500);
+			pasynInt32SyncIO->write(r53_, (int) homingSpeed, 500);
+			pasynInt32SyncIO->write(r54_, (int) homingSpeed, 500);
 			pasynInt32SyncIO->write(r31_, 0, 500);
 		}
 	}
@@ -705,54 +703,54 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	return asynSuccess;
 }
 
-//simply move toward newPos with goCmd (may be 0x5 not to check limSw or 0x25 to check them)
-asynStatus BeckAxis::directMove(int newPos, int goCmd) {
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, 0x%x)\n", __FUNCTION__, newPos, goCmd);
-
-	//set new position where to go
-	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
-	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
-	pasynInt32SyncIO->write(dataOut_, 0, 500);
-
-	//start movement
-	movePend=true;
-	setIntegerParam(pC_->motorStatusDone_, false);
-	callParamCallbacks();
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-starting position:\t%10.2f\n", currPos);
-	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
-	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
-}
-
-//exit from the limit switches performing n steps and then checking until out
-asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, %i)\n", __FUNCTION__, usePos, newPos);
-	if (!(lHigh or lLow)) {
-		return asynSuccess;
-	}
-
-	bool moving;
-	double exitDir = lHigh ? -1 : 1;
-	bool *activeSwitch = lHigh ? &lHigh : &lLow;
-	bool *inactiveSwitch = lHigh ? &lLow : &lHigh;
-
-
-
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Moving out of limit switch!\n");
-	while (*activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !(*inactiveSwitch)) {
-		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
-		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
-			middlePos=newPos;
-		}
-		directMove(middlePos, 0x5);
-		//while (movePend) {
-		//	epicsThreadSleep(0.1);
-		//	pC_->poll();
-		//	poll(&moving);
-		//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
-		//}
-	}
-	return asynSuccess;
-}
+////simply move toward newPos with goCmd (may be 0x5 not to check limSw or 0x25 to check them)
+//asynStatus BeckAxis::directMove(int newPos, int goCmd) {
+//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, 0x%x)\n", __FUNCTION__, newPos, goCmd);
+//
+//	//set new position where to go
+//	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
+//	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
+//	pasynInt32SyncIO->write(dataOut_, 0, 500);
+//
+//	//start movement
+//	movePend=true;
+//	setIntegerParam(pC_->motorStatusDone_, false);
+//	callParamCallbacks();
+//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-starting position:\t%10.2f\n", currPos);
+//	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+//	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
+//}
+//
+////exit from the limit switches performing n steps and then checking until out
+//asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
+//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, %i)\n", __FUNCTION__, usePos, newPos);
+//	if (!(lHigh or lLow)) {
+//		return asynSuccess;
+//	}
+//
+//	bool moving;
+//	double exitDir = lHigh ? -1 : 1;
+//	bool *activeSwitch = lHigh ? &lHigh : &lLow;
+//	bool *inactiveSwitch = lHigh ? &lLow : &lHigh;
+//
+//
+//
+//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Moving out of limit switch!\n");
+//	while (*activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !(*inactiveSwitch)) {
+//		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
+//		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
+//			middlePos=newPos;
+//		}
+//		directMove(middlePos, 0x5);
+//		//while (movePend) {
+//		//	epicsThreadSleep(0.1);
+//		//	pC_->poll();
+//		//	poll(&moving);
+//		//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
+//		//}
+//	}
+//	return asynSuccess;
+//}
 
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
@@ -767,8 +765,6 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 	exitingLimSw = false;
 
-	//update position to have it really up-to-date
-	//updateCurrentPosition();
 	int newPos = (relative ? currPos : 0 ) + position;
 	if (newPos==currPos) return asynSuccess;
 
@@ -822,33 +818,39 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 }
 
 //Method to execute the homing
-asynStatus BeckAxis::home(double min_velocity, double max_velocity, double acceleration, int forwards){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, max_velocity, acceleration, forwards);
-	epicsUInt32 featureReg;
-	bool forward = forwards;
-	bool moving;
-	setAcclVelo(min_velocity, max_velocity, acceleration);
+asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acceleration, int forward){
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
+	startingHome = false;
+
+	//set runtime parameters
+	setAcclVelo(min_velocity, curr_max_velo, acceleration);
+
+	//set homing velocity and direction
+	if (home_velocity!=curr_home_velo or forward!=curr_forw){
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s: updating velocity and direction\n", __FUNCTION__);
+		pasynInt32SyncIO->write(r31_, 0x1235, 500);  //enable write to protected regs
+		if (home_velocity!=curr_home_velo) {
+			curr_home_velo = home_velocity;
+			home_velocity = (int) home_velocity* 0.016384;  //vel=mstep/sec/16Mhz*262144
+			pasynInt32SyncIO->write(r53_, home_velocity, 500);
+			pasynInt32SyncIO->write(r54_, home_velocity, 500);
+		}
+		if (forward!=curr_forw) {
+			curr_forw = forward;
+			forward = (bool) forward;
+			pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
+		}
+		pasynInt32SyncIO->write(r31_, 0, 500);  //disable write on protected regs
+	}
 
 	//cannot start homing until both limit switches are not pressed
 	if (lLow || lHigh) {
-		exitLimSw(false, 0);
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s: limits switch, moving out...\n", __FUNCTION__);
+		lastDir = lLow ? -1 : 1;
+		move(-lastDir*OUTOFSWITCH_STEPS*microstepPerStep, 1, curr_min_velo, curr_max_velo, curr_acc);  //exit limit switches
+		startingHome = true;
+		return asynSuccess;
 	}
-
-	//set feature register 2 to set homing direction
-	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x1, 500);
-	if (featureReg!=forward) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-FeatureReg2 0x%04x -> 0x%04x: changed direction\n", featureReg, forward);
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
-		//epicsUInt32 tmp;
-		//pasynUInt32DigitalSyncIO->read(r52_, &tmp, 0x1, 500);
-		//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Actually written: %d\n", tmp);
-	}
-
-	//update status
-	//pC_->poll();
-	//poll(&moving);
 
 	//start homing
 	pasynInt32SyncIO->write(dataOut_, 0, 500);
@@ -878,7 +880,7 @@ asynStatus BeckAxis::stop(double acceleration){
 
 //Poller to update motor status on the record
 asynStatus BeckAxis::poll(bool *moving) {
-	//epicsStdoutPrintf("-- poll --\n");
+	epicsStdoutPrintf("- %02d poll -- homing: %d  -- exitingLimSw: %d\n", axisNo_, startingHome, exitingLimSw);
 	epicsInt32 statusByte, statusWord;
 	bool regAccess, error, warning, ready, moveDone;
 	bool partialLHigh, partialLLow;
@@ -899,13 +901,21 @@ asynStatus BeckAxis::poll(bool *moving) {
 		partialLLow = statusWord & 0x2;
 	}
 
-	if (exitingLimSw && (partialLLow < lLow or partialLHigh < lHigh)) {
-		pasynUInt32DigitalSyncIO->write(controlByte_, 0x20, 0x20, 500);  //enable lim switch auto stop
+	//if the move was started without limit switches auto stop, enable it as soon as out of limit switches
+	if (exitingLimSw && (partialLLow < lLow or partialLHigh < lHigh)) {  //falling edges on limit switches readings
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-out of limit switch %s\n", lHigh ? "HIGH" : "LOW");
+		pasynUInt32DigitalSyncIO->write(controlByte_, 0x20, 0x20, 500);  //enable limit switch auto stop
+		exitingLimSw = false;
+		if (startingHome) {  //re-launch homing to now perform homing from out of limsw
+			startingHome = false;
+			lHigh = partialLHigh;
+			lLow = partialLLow;
+			home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+		}
 	}
 
 	lHigh = partialLHigh;
 	lLow = partialLLow;
-
 	setIntegerParam(pC_->motorStatusHighLimit_, lHigh);
 	setIntegerParam(pC_->motorStatusLowLimit_, lLow);
 
@@ -918,10 +928,11 @@ asynStatus BeckAxis::poll(bool *moving) {
 		warning = statusByte & 0x20;
 		moveDone = statusByte & 0x10;
 		if (moveDone && movePend) {
-			//update position in order to set it as updated as possible when putting motorDone to 1
-			updateCurrentPosition();
-			setDoubleParam(pC_->motorPosition_, currPos);
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-startingHome is %d\n", startingHome);
+			if (startingHome) { //not yet out of limit switches, do another movement
+				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+			}
 		}
 		movePend = !moveDone;
 		*moving = movePend;
@@ -1092,27 +1103,24 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		char *NCcontactsStr;
 		char *lsDownOneStr;
 		char *homeAtStartupStr;
-		char *speedToHomeStr;
-		char *speedFromHomeStr;
+		char *homingSpeedStr;
 		char *emergencyAcclStr;
 
-		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]",  &refPositionStr,
-																						&NCcontactsStr,
-																						&lsDownOneStr,
-																						&homeAtStartupStr,
-																						&speedToHomeStr,
-																						&speedFromHomeStr,
-																						&emergencyAcclStr);
+		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]", &refPositionStr,
+																				&NCcontactsStr,
+																				&lsDownOneStr,
+																				&homeAtStartupStr,
+																				&homingSpeedStr,
+																				&emergencyAcclStr);
 		double refPosition = 0;
 		double NCcontacts = 0;
 		double lsDownOne = 0;
 		double homeAtStartup = 0;
-		double speedToHome = -1, speedFromHome = -1, emergencyAccl = -1;
+		double homingSpeed = -1, emergencyAccl = -1;
 
 		switch (nPar) {
-			case 7: epicsScanDouble(emergencyAcclStr, &emergencyAccl);
-			case 6: epicsScanDouble(speedFromHomeStr, &speedFromHome);
-			case 5: epicsScanDouble(speedToHomeStr, &speedToHome);
+			case 6: epicsScanDouble(emergencyAcclStr, &emergencyAccl);
+			case 5: epicsScanDouble(homingSpeedStr, &homingSpeed);
 			case 4: epicsScanDouble(homeAtStartupStr, &homeAtStartup);
 			case 3: epicsScanDouble(lsDownOneStr, &lsDownOne);
 			case 2: epicsScanDouble(NCcontactsStr, &NCcontacts);
@@ -1126,7 +1134,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, speedToHome, speedFromHome, emergencyAccl);
+			axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
 		}
 		epicsStdoutPrintf("\n");
 	}
