@@ -704,55 +704,6 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	return asynSuccess;
 }
 
-////simply move toward newPos with goCmd (may be 0x5 not to check limSw or 0x25 to check them)
-//asynStatus BeckAxis::directMove(int newPos, int goCmd) {
-//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, 0x%x)\n", __FUNCTION__, newPos, goCmd);
-//
-//	//set new position where to go
-//	pasynInt32SyncIO->write(r2_, newPos & 0xFFFF, 500);
-//	pasynInt32SyncIO->write(r3_, (newPos>>16) & 0xFFFF, 500);
-//	pasynInt32SyncIO->write(dataOut_, 0, 500);
-//
-//	//start movement
-//	movePend=true;
-//	setIntegerParam(pC_->motorStatusDone_, false);
-//	callParamCallbacks();
-//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-starting position:\t%10.2f\n", currPos);
-//	pasynInt32SyncIO->write(controlByte_, 0x1, 500);
-//	pasynInt32SyncIO->write(controlByte_, goCmd, 500);
-//}
-//
-////exit from the limit switches performing n steps and then checking until out
-//asynStatus  BeckAxis::exitLimSw(bool usePos, int newPos) {
-//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%i, %i)\n", __FUNCTION__, usePos, newPos);
-//	if (!(lHigh or lLow)) {
-//		return asynSuccess;
-//	}
-//
-//	bool moving;
-//	double exitDir = lHigh ? -1 : 1;
-//	bool *activeSwitch = lHigh ? &lHigh : &lLow;
-//	bool *inactiveSwitch = lHigh ? &lLow : &lHigh;
-//
-//
-//
-//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Moving out of limit switch!\n");
-//	while (*activeSwitch and (!usePos  or exitDir*currPos<newPos*exitDir) and !(*inactiveSwitch)) {
-//		epicsInt32 middlePos = currPos + OUTOFSWITCH_STEPS*microstepPerStep*exitDir;
-//		if (usePos and (exitDir*middlePos > newPos*exitDir)) {
-//			middlePos=newPos;
-//		}
-//		directMove(middlePos, 0x5);
-//		//while (movePend) {
-//		//	epicsThreadSleep(0.1);
-//		//	pC_->poll();
-//		//	poll(&moving);
-//		//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-movePend is %d, currPos is %.2f\n", movePend, currPos);
-//		//}
-//	}
-//	return asynSuccess;
-//}
-
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
 {
@@ -815,6 +766,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	}
 	pasynInt32SyncIO->write(controlByte_, goCmd, 500);  //the movement should now start
+	epicsThreadSleep(0.030); //wait at least 30ms before polling to let the controller updated moveDone bit
 	return asynSuccess;
 }
 
@@ -865,6 +817,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 
 	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
 	lastDir = forward ? -1 : 1;
+	epicsThreadSleep(0.030); //wait at least 30ms before polling to let the controller updated moveDone bit
 	return asynSuccess;
 }
 
@@ -929,6 +882,9 @@ asynStatus BeckAxis::poll(bool *moving) {
 		warning = statusByte & 0x20;
 		moveDone = statusByte & 0x10;
 		if (moveDone && movePend) {  //movement has just finished
+			pC_->poll();
+			updateCurrentPosition();
+			setDoubleParam(pC_->motorPosition_, currPos);
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-startingHome is %d\n", startingHome);
 			if (startingHome) { //not yet out of limit switches, do another movement
