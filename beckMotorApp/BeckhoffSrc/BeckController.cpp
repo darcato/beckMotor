@@ -766,7 +766,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	}
 	pasynInt32SyncIO->write(controlByte_, goCmd, 500);  //the movement should now start
-	epicsThreadSleep(0.030); //wait at least 30ms before polling to let the controller updated moveDone bit
+	epicsThreadSleep(0.050); //wait at least 30ms before polling to let the controller updated moveDone bit
 	return asynSuccess;
 }
 
@@ -817,7 +817,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 
 	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
 	lastDir = forward ? -1 : 1;
-	epicsThreadSleep(0.030); //wait at least 30ms before polling to let the controller updated moveDone bit
+	epicsThreadSleep(0.050); //wait at least 30ms before polling to let the controller updated moveDone bit
 	return asynSuccess;
 }
 
