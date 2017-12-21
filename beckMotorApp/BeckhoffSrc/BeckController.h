@@ -31,6 +31,8 @@
 #include "asynMotorAxis.h"
 #include <asynPortClient.h>
 #include "BeckDriver.h"
+#include <vector>
+#include <array>
 
 /**
  * -------------------------------------------------
@@ -124,19 +126,14 @@ friend class BeckController;
  */
 class epicsShareClass BeckController : public asynMotorController {
 
-  //asynUser *inputRegs_;
-  //asynUser *outputRegs_;
-  asynUser *statusByte_;
-  asynUser *statusWord_;
-  asynUser *r0_;
   asynUser *r1_;
+  asynUser *memInp_;
 
   //these arrays are populated by the poll of the controller, and read by axis pollers
-  epicsInt32 *r0_cache;
   epicsInt32 *r1_cache;
-  epicsInt32 *statusByte_cache;
-  epicsInt32 *statusWord_cache;
+  std::vector< std::array<epicsInt32, 3> > memInp_cache;
 
+  bool pHighAlreadyRead = false;
 
 protected:
   char *beckDriverPName_;
