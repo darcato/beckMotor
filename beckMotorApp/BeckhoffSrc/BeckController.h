@@ -102,6 +102,18 @@ private:
   asynUser *r56_;
   asynUser *r58_;
 
+  //asynClients representing internal registers
+  //std::vector<asynInt32Client *> r_;
+
+  //asynClients representing modbus registers
+  //asynInt32Client *statusByte_;
+  //asynInt32Client *dataIn_;
+  //asynInt32Client *statusWord_;
+  //asynInt32Client *controlByte_;
+  //asynInt32Client *dataOut_;
+  //asynInt32Client *controlWord_;
+
+
   //a flag to indicate end of movement
   bool movePend;
   double currPos, lastDir;
@@ -126,8 +138,18 @@ friend class BeckController;
  */
 class epicsShareClass BeckController : public asynMotorController {
 
-  asynUser *r1_;
-  asynUser *memInp_;
+//asynClients representing internal registers
+  std::vector<asynInt32ArrayClient *> r_;
+
+  //asynClients representing modbus registers
+  asynInt32ArrayClient *statusByte_;
+  asynInt32ArrayClient *dataIn_;
+  asynInt32ArrayClient *statusWord_;
+  asynInt32ArrayClient *controlByte_;
+  asynInt32ArrayClient *dataOut_;
+  asynInt32ArrayClient *controlWord_;
+  asynInt32ArrayClient *memInp_;
+  asynInt32ArrayClient *memOut_;
 
   //these arrays are populated by the poll of the controller, and read by axis pollers
   epicsInt32 *r1_cache;

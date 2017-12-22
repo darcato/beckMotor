@@ -46,9 +46,6 @@
 #include "BeckController.h"
 
 #define OUTOFSWITCH_STEPS 200
-#define SB 0
-#define DI 1
-#define SW 2
 
 #include <cmath>
 
@@ -72,13 +69,11 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 
 	beckDriverPName_ = (char *) mallocMustSucceed(strlen(beckDriverPName)+1, "Malloc failed\n");
 	strcpy(beckDriverPName_, beckDriverPName);
-	//get the number of axis from the underlying driver
-	int nAxis=getBeckMaxAddr(beckDriverPName);
 
 	//create each axis of this controller
-	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Now create %d axis\n", nAxis);
+	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Now create %d axis\n", numAxes_);
 	int i = 0;
-	for (i=0; i<nAxis; i++){
+	for (i=0; i<numAxes_; i++){
 		pAxis = new BeckAxis(this, i);
 		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Axis n: %d successfully created\n", i);
 		std::array<epicsInt32, 3> axisRegs;
@@ -87,21 +82,29 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 
 	//arrays to keep values polled from the controller
 	//the axis pollers will read this instead of doing modbus I/O -> single big readings instead of small ones = efficiency
-	r1_cache = new epicsInt32[nAxis];
+	r1_cache = new epicsInt32[numAxes_];
 
-	// Connect to modbus input registers through the underlying driver
-	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &r1_, "R01");
-	if (status) {
-		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
+	char name[10];
+	for (int i=1; i < KL2541_N_REG; i++){
+		sprintf(name, "R%02i", i);
+		r_.push_back(new asynInt32ArrayClient(beckDriverPName_, 0, name));
 	}
 
-	status = pasynInt32ArraySyncIO->connect(beckDriverPName_, 0, &memInp_, "MI");
-	if (status) {
-		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
+	memInp_ = new asynInt32ArrayClient(beckDriverPName_, 0, "MI");
+	memOut_ = new asynInt32ArrayClient(beckDriverPName_, 0, "MO");
+	statusByte_ = new asynInt32ArrayClient(beckDriverPName_, 0, "SB");
+	dataIn_ = new asynInt32ArrayClient(beckDriverPName_, 0, "DI");
+	statusWord_ = new asynInt32ArrayClient(beckDriverPName_, 0, "SW");
+	controlByte_ = new asynInt32ArrayClient(beckDriverPName_, 0, "CB");
+	dataOut_ = new asynInt32ArrayClient(beckDriverPName_, 0, "DO");
+	controlWord_ = new asynInt32ArrayClient(beckDriverPName_, 0, "CW");
 
+	//initialize the cache
 	size_t nin;
-	pasynInt32ArraySyncIO->read(r1_, r1_cache, nAxis, &nin, 500);
+	status = r_[1]->read(r1_cache, numAxes_, &nin);
+	if (status!=asynSuccess) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "Warning: could not initialize r1 cache\n");
+	}
 
 	//start the poller of each axis with two polling times: while the axis is moving and while it is not
 	startPoller(movingPollPeriod, idlePollPeriod, 2);
@@ -131,7 +134,7 @@ asynStatus BeckController::poll() {
 	pHighAlreadyRead = false;
 
 	size_t nin;
-	pasynInt32ArraySyncIO->read(memInp_, memInp_cache.data()->data(), 3*numAxes_, &nin, 500);
+	memInp_->read(memInp_cache.data()->data(), 3*numAxes_, &nin);
 
 	return asynSuccess;
 }
@@ -382,7 +385,7 @@ asynStatus BeckAxis::updateCurrentPosition() {
 	pLow = pC_->memInp_cache[axisNo_][DI];
 	if ((((epicsInt32) currPos) &0x8000)!=(pLow&0x8000) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed
 		size_t nin;
-		pasynInt32ArraySyncIO->read(pC_->r1_, pC_->r1_cache, pC_->numAxes_, &nin, 500);
+		pC_->r_[1]->read(pC_->r1_cache, pC_->numAxes_, &nin);
 		pC_->pHighAlreadyRead = true;
 	}
 	pHigh = pC_->r1_cache[axisNo_];
@@ -766,7 +769,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		pasynInt32SyncIO->write(controlByte_, 0x1, 500);
 	}
 	pasynInt32SyncIO->write(controlByte_, goCmd, 500);  //the movement should now start
-	epicsThreadSleep(0.050); //wait at least 30ms before polling to let the controller updated moveDone bit
+	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
 
@@ -817,7 +820,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 
 	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
 	lastDir = forward ? -1 : 1;
-	epicsThreadSleep(0.050); //wait at least 30ms before polling to let the controller updated moveDone bit
+	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
 
