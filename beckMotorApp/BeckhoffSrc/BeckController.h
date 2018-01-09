@@ -72,7 +72,6 @@ private:
   //asynClients representing internal registers - bit access
   std::vector<asynUInt32DigitalClient *> ru_;
 
-
   //asynClients representing modbus registers
   asynInt32Client *statusByte_;
   asynInt32Client *dataIn_;
@@ -88,7 +87,6 @@ private:
   asynUInt32DigitalClient *controlByteBits_;
   asynUInt32DigitalClient *dataOutBits_;
   asynUInt32DigitalClient *controlWordBits_;
-
 
   //a flag to indicate end of movement
   bool movePend;

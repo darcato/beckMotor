@@ -97,16 +97,18 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 
 		std::array<epicsInt32, 3> axisOutRegs;
 		cache_.push_back(axisOutRegs);
-	}
 
-	//get initial values of output values to sync cache at the beginning
-	//then their values will be updated only on writings and a cache will be kept
-	size_t allnIn;  //how many actually read
-	//size_t nAllRegs = 3*nAxis;  //There are 3 output registers for each axis (see KL2541 docs) - nAxis_ is the num of axis
-	//epicsInt32 allRegs[nRegs_][3] = {0};  //an array to receive the reading of all the output registers
-	asynStatus status = outRegs_->read(cache_.data()->data(), nRegs_, &allnIn);  //will read all the initial values (not updated with changes from this program)
-	if (status != asynSuccess or allnIn!=nRegs_) {
-		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "ERROR: Cannot initialize registers\n");
+		//get initial values of output values to sync cache at the beginning
+		//then their values will be updated only on writings and a cache will be kept
+		epicsInt32 val;
+		controlByte_[i]->read(&val);
+		cache_[i][CB] = val;
+		dataOut_[i]->read(&val);
+		cache_[i][DO] = val;
+		controlWord_[i]->read(&val);
+		cache_[i][CW] = val;
+
+		//printf("Axis %d -- CB 0x%04x -- CB 0x%04x -- CB 0x%04x\n", i, cache_[i][CB], cache_[i][DO], cache_[i][CW]);
 	}
 
 }
