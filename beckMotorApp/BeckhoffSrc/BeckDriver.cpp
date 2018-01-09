@@ -33,13 +33,6 @@
 #include <epicsThread.h>
 #include <chrono>
 
-//#include <unistd.h> //for usleep
-
-#define KL2541_N_REG 64
-#define CB 0
-#define DO 1
-#define CW 2
-
 //a vector to store a reference to each driver created
 static std::vector<BeckPortDriver *> _drivers;
 
@@ -112,7 +105,6 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	//size_t nAllRegs = 3*nAxis;  //There are 3 output registers for each axis (see KL2541 docs) - nAxis_ is the num of axis
 	//epicsInt32 allRegs[nRegs_][3] = {0};  //an array to receive the reading of all the output registers
 	asynStatus status = outRegs_->read(cache_.data()->data(), nRegs_, &allnIn);  //will read all the initial values (not updated with changes from this program)
-	epicsStdoutPrintf("read\n");
 	if (status != asynSuccess or allnIn!=nRegs_) {
 		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "ERROR: Cannot initialize registers\n");
 	}
@@ -245,8 +237,6 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 	getAddress(pasynUser, &axisFrom);
 	asynStatus status;
 
-	printf("BeckDriver - read Int32Array\n");
-
 	//if an internal register
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
 		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Registers %d\n", pasynUser->reason-roffset);
@@ -312,8 +302,6 @@ asynStatus BeckPortDriver::writeInt32Array(asynUser *pasynUser, epicsInt32 *valu
 	asynPrint(pasynUser, ASYN_TRACE_FLOW, "writeInt32Array with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axisFrom;
 	getAddress(pasynUser, &axisFrom);
-
-	printf("BeckDriver - write Int32Array\n");
 
 	//if an internal register
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {

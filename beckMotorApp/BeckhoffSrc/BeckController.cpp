@@ -63,7 +63,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 						 0, 0)	// Default priority and stack size
 {
 	asynStatus status;
-	static const char *functionName = "BeckController::BeckController";
+	//static const char *functionName = "BeckController::BeckController";
 
 	BeckAxis *pAxis; //set but not used not to be eliminated by compiler
 
@@ -72,8 +72,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 
 	//create each axis of this controller
 	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Now create %d axis\n", numAxes_);
-	int i = 0;
-	for (i=0; i<numAxes_; i++){
+	for (int i=0; i<numAxes_; i++){
 		pAxis = new BeckAxis(this, i);
 		asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,"Axis n: %d successfully created\n", i);
 		std::array<epicsInt32, 3> axisRegs;
@@ -85,7 +84,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	r1_cache = new epicsInt32[numAxes_];
 
 	char name[10];
-	for (int i=1; i < KL2541_N_REG; i++){
+	for (int i=0; i < KL2541_N_REG; i++){
 		sprintf(name, "R%02i", i);
 		r_.push_back(new asynInt32ArrayClient(beckDriverPName_, 0, name));
 	}
@@ -129,6 +128,12 @@ void BeckController::report(FILE *fp, int level)
 	asynMotorController::report(fp, level);
 }
 
+
+/**
+ * This is called once before calling in sequence all the axis polls,
+ * so this performs the actual modbus IO, reading all the memory for most efficiency,
+ * while axis polls simply access to the cached data and interpret it.
+ */
 asynStatus BeckController::poll() {
 	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "polling...\n");
 	pHighAlreadyRead = false;
@@ -156,191 +161,30 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 		asynMotorAxis(pC, axis),
 		pC_(pC)
 {
-	asynStatus status;
-	static const char *functionName = "BeckAxis::BeckAxis";
+	//asynStatus status;
+	//static const char *functionName = "BeckAxis::BeckAxis";
 
-	// Connect to modbus input registers through the underlying driver
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &statusByte_, "SB");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
+
+	char name[10];
+	for (int i=0; i < KL2541_N_REG; i++){
+		sprintf(name, "R%02i", i);
+		r_.push_back(new asynInt32Client(pC_->beckDriverPName_, axis, name));
+		ru_.push_back(new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, name));
 	}
 
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &dataIn_, "DI");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
+	statusByte_ = new asynInt32Client(pC_->beckDriverPName_, axis, "SB");
+	dataIn_ = new asynInt32Client(pC_->beckDriverPName_, axis, "DI");
+	statusWord_ = new asynInt32Client(pC_->beckDriverPName_, axis, "SW");
+	controlByte_ = new asynInt32Client(pC_->beckDriverPName_, axis, "CB");
+	dataOut_ = new asynInt32Client(pC_->beckDriverPName_, axis, "DO");
+	controlWord_ = new asynInt32Client(pC_->beckDriverPName_, axis, "CW");
 
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &statusWord_, "SW");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	// Connect to modbus output registers through the underlying driver
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &controlByte_, "CB");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &dataOut_, "DO");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &controlWord_, "CW");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	// Connect to the beckhoff internal registers through the underlying driver
-	//R0 	Actual position (low-order word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r0_, "R00");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R1 	Actual position (high-order word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r1_, "R01");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R2 	Set target position or position (low-order word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r2_, "R02");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R3 	Set target position or position (high-order word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r3_, "R03");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R7 	Command register
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r7_, "R07");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R8 	Terminal type
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r8_, "R08");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R31 	Code word register
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r31_, "R31");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R32 	Feature register 1
-	status = pasynUInt32DigitalSyncIO->connect(pC_->beckDriverPName_, axis, &r32_, "R32");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R33 	Full motor steps
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r33_, "R33");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R35 	Maximum coil current A
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r35_, "R35");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R36 	Maximum coil current B
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r36_, "R36");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R38 	Min. velocity vmin
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r38_, "R38");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R39 	Max. velocity vmax
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r39_, "R39");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R40 	Max. acceleration amax
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r40_, "R40");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R42 	Coil current IS, a > ath
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r42_, "R42");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R43 	Coil current IS, a ≤ ath
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r43_, "R43");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R44 	Coil current IS, v = 0 (automatic)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r44_, "R44");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R46 	Step size per quarter period
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r46_, "R46");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R50 	Emergency acceleration ae
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r50_, "R50");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R52 	Feature-Register 2
-	status = pasynUInt32DigitalSyncIO->connect(pC_->beckDriverPName_, axis, &r52_, "R52");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R53 	Referencing speed backward vref,b
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r53_, "R53");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R54 	Referencing speed forward vref,f
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r54_, "R54");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R55 	Referencing position (lower value word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r55_, "R55");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R56 	Referencing position (higher value word)
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r56_, "R56");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-
-	//R58 	max. deceleration adec
-	status = pasynInt32SyncIO->connect(pC_->beckDriverPName_, axis, &r58_, "R58");
-	if (status) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW, "%s: cannot connect to Beckhoff driver\n", functionName);
-	}
+	statusByteBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "SB");
+	dataInBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "DI");
+	statusWordBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "SW");
+	controlByteBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "CB");
+	dataOutBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "DO");
+	controlWordBits_ = new asynUInt32DigitalClient(pC_->beckDriverPName_, axis, "CW");
 
 	//set convenient parameters to initialize record motor
 	setDoubleParam(pC_->motorPosition_, 0);
@@ -366,11 +210,11 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	lLow = false;
 	currPos = 0;
 	lastDir = 0;
-	pasynInt32SyncIO->read(r2_, &lastr2, 500);
-	pasynInt32SyncIO->read(r3_, &lastr3, 500);
+	r_[2]->read(&lastr2);
+	r_[3]->read(&lastr3);
 
 	//give current to the motor (enable)
-	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	controlByte_->write(0x21);
 }
 
 //a report function for the record
@@ -401,18 +245,18 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
 	if (min_velocity!=curr_min_velo) {
 		curr_min_velo = min_velocity;
 		min_velocity = (int) min_velocity * 0.016384;  //vel=mstep/sec/16Mhz*262144
-		pasynInt32SyncIO->write(r38_, min_velocity, 500);
+		r_[38]->write(min_velocity);
 	}
 	if (max_velocity!=curr_max_velo) {
 		curr_max_velo = max_velocity;
 		max_velocity = (int) max_velocity * 0.016384;
-		pasynInt32SyncIO->write(r39_, max_velocity, 500);
+		r_[39]->write(max_velocity);
 	}
 	if (acceleration!=curr_acc) {
 		curr_acc = acceleration;
 		acceleration = (int) acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
-		pasynInt32SyncIO->write(r40_, acceleration, 500);
-		pasynInt32SyncIO->write(r58_, acceleration, 500);
+		r_[40]->write(acceleration);
+		r_[58]->write(acceleration);
 	}
 	return asynSuccess;
 }
@@ -430,10 +274,10 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 	int percent = -1;
 
 	//write passcode in register 31 to enable writing to static memory
-	pasynInt32SyncIO->write(r31_, 0x1235, 500);
+	r_[31]->write(0x1235);
 
 	//read controller code and convert ampere to %
-	pasynInt32SyncIO->read(r8_, &termType, 500);
+	r_[8]->read(&termType);
 	switch (termType) {
 		case 2531: fullScaleCurr = 1.5; break;
 		case 2541: fullScaleCurr = 5.0;	break;
@@ -447,8 +291,8 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 	//R35: Maximum coil current A (in % to fullScale of device)
 	//R36: Maximum coil current B (in % to fullScale of device)
 	if (maxAmp>=0){
-		pasynInt32SyncIO->read(r35_, &setMaxCurrentA, 500);
-		pasynInt32SyncIO->read(r36_, &setMaxCurrentB, 500);
+		r_[35]->read(&setMaxCurrentA);
+		r_[36]->read(&setMaxCurrentB);
 
 		if (maxAmp>fullScaleCurr) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
@@ -457,29 +301,29 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		percent = round( maxAmp / fullScaleCurr *100 );
 		if (setMaxCurrentA!=percent) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R35 0x%04x -> 0x%04x: max current A (%%)\n", setMaxCurrentA, percent);
-			pasynInt32SyncIO->write(r35_, percent, 500);
+			r_[35]->write(percent);
 		}
 		if (setMaxCurrentB!=percent) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R36 0x%04x -> 0x%04x: max current B (%%)\n", setMaxCurrentB, percent);
-			pasynInt32SyncIO->write(r36_, percent, 500);
+			r_[36]->write(percent);
 		}
 	}
 
 	//readback set maxAmp to check validity
-	pasynInt32SyncIO->read(r35_, &setMaxCurrentA, 500);
-	pasynInt32SyncIO->read(r36_, &setMaxCurrentB, 500);
+	r_[35]->read(&setMaxCurrentA);
+	r_[36]->read(&setMaxCurrentB);
 
 
 	//lower current to minimum common if found different
 	if (setMaxCurrentA>setMaxCurrentB) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
 		setMaxCurrentA = setMaxCurrentB;
-		pasynInt32SyncIO->write(r35_, setMaxCurrentA, 500);
+		r_[35]->write(setMaxCurrentA);
 	}
 	if (setMaxCurrentB>setMaxCurrentA) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
 		setMaxCurrentB = setMaxCurrentA;
-		pasynInt32SyncIO->write(r36_, setMaxCurrentA, 500);
+		r_[36]->write(setMaxCurrentB);
 	}
 
 	//check if the writing was unsuccessful
@@ -491,7 +335,7 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 
 	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
 	if (autoHoldinCurr>=0) {
-		pasynInt32SyncIO->read(r44_, &setHoldCurr, 500);
+		r_[44]->read(&setHoldCurr);
 		if (autoHoldinCurr>setMaxAmp) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
 			autoHoldinCurr = setMaxAmp;
@@ -499,13 +343,13 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		percent = round( autoHoldinCurr / setMaxAmp *100 );
 		if (setHoldCurr!=percent) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R44 0x%04x -> 0x%04x: auto holding current (%%)\n", setHoldCurr, percent);
-			pasynInt32SyncIO->write(r44_, percent, 500);
+			r_[44]->write(percent);
 		}
 	}
 
 	//R42: Coil current, a > ath (in % to maxAmp)
 	if (highAccCurr>=0) {
-		pasynInt32SyncIO->read(r42_, &setHighAccCurr, 500);
+		r_[42]->read(&setHighAccCurr);
 
 		if (highAccCurr>setMaxAmp) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
@@ -514,13 +358,13 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		percent = round( highAccCurr / setMaxAmp *100 );
 		if (setHighAccCurr!=percent) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R42 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setHighAccCurr, percent);
-			pasynInt32SyncIO->write(r42_, percent, 500);
+			r_[42]->write(percent);
 		}
 	}
 
 	//R43: Coil current, a <= ath (in % to maxAmp)
 	if (lowAccCurr>=0) {
-		pasynInt32SyncIO->read(r43_, &setLowAccCurr, 500);
+		r_[43]->read(&setLowAccCurr);
 
 		if (lowAccCurr>setMaxAmp) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
@@ -529,12 +373,12 @@ asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double h
 		percent = round( lowAccCurr / setMaxAmp *100 );
 		if (setLowAccCurr!=percent) {
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R43 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setLowAccCurr, percent);
-			pasynInt32SyncIO->write(r43_, percent, 500);
+			r_[43]->write(percent);
 		}
 	}
 
 	//remove passcode from register 31
-	pasynInt32SyncIO->write(r31_, 0, 500);
+	r_[31]->write(0);
 
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Currents written to the controller!\n");
 	return asynSuccess;
@@ -549,47 +393,48 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	epicsInt32 oldValue;
 	epicsUInt32 oldRegister, featureReg;
 
-	pasynInt32SyncIO->read(r55_, &oldValue, 500);
+	r_[55]->read(&oldValue);
 	if (oldValue!=(refPosition & 0xFFFF)){
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R55: 0x%04x -> 0x%04x \t reference position (low word)\n", oldValue, refPosition & 0xFFFF);
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r55_, refPosition & 0xFFFF, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
-	}
-	pasynInt32SyncIO->read(r56_, &oldValue, 500);
-	if (oldValue!=((refPosition>>16) & 0xFFFF)){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynInt32SyncIO->write(r56_, (refPosition>>16) & 0xFFFF, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
+		r_[31]->write(0x1235);
+		r_[55]->write(refPosition & 0xFFFF);
+		r_[31]->write(0);
 	}
 
-	pasynUInt32DigitalSyncIO->read(r52_, &oldRegister, 0xC000, 500);
+	r_[56]->read(&oldValue);
+	if (oldValue!=((refPosition>>16) & 0xFFFF)){
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
+		r_[31]->write(0x1235);
+		r_[56]->write((refPosition>>16) & 0xFFFF);
+		r_[31]->write(0);
+	}
+
+	ru_[52]->read(&oldRegister, 0xC000);
 	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
 	if (featureReg!=oldRegister){
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-Warning: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynUInt32DigitalSyncIO->write(r52_, featureReg, 0xC000, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
+		r_[31]->write(0x1235);
+		ru_[52]->write(featureReg, 0xC000);
+		r_[31]->write(0);
 	}
 
 	if (homingSpeed>=0){
-		pasynInt32SyncIO->read(r53_, &oldValue, 500);
+		r_[53]->read(&oldValue);
 		if (oldValue!=((int) homingSpeed)){
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) homingSpeed);
-			pasynInt32SyncIO->write(r31_, 0x1235, 500);
-			pasynInt32SyncIO->write(r53_, (int) homingSpeed, 500);
-			pasynInt32SyncIO->write(r54_, (int) homingSpeed, 500);
-			pasynInt32SyncIO->write(r31_, 0, 500);
+			r_[31]->write(0x1235);
+			r_[53]->write((int) homingSpeed);
+			r_[54]->write((int) homingSpeed);
+			r_[31]->write(0);
 		}
 	}
 
 	if (emergencyAccl>=0){
-		pasynInt32SyncIO->read(r50_, &oldValue, 500);
+		r_[50]->read(&oldValue);
 		if (oldValue!=((int) emergencyAccl)){
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R50: 0x%04x -> 0x%04x \t emergency acceleration\n", oldValue, (int) emergencyAccl);
-			pasynInt32SyncIO->write(r50_, (int) emergencyAccl, 500);
+			r_[50]->write((int) emergencyAccl);
 		}
 	}
 
@@ -620,22 +465,22 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
 		this->microstepPerStep = microstepPerStep;
 		microstepPerStep = round(log2(microstepPerStep));
 
-		pasynInt32SyncIO->read(r46_, &oldValue, 500);
+		r_[46]->read(&oldValue);
 		if (oldValue!=microstepPerStep){
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), this->microstepPerStep);
-			pasynInt32SyncIO->write(r31_, 0x1235, 500);
-			pasynInt32SyncIO->write(r46_, microstepPerStep, 500);
-			pasynInt32SyncIO->write(r31_, 0, 500);
+			r_[31]->write(0x1235);
+			r_[46]->write(microstepPerStep);
+			r_[31]->write(0);
 		}
 	}
 
 	if (stepPerRevolution>0) {
-		pasynInt32SyncIO->read(r33_, &oldValue, 500);
+		r_[33]->read(&oldValue);
 		if (oldValue!=stepPerRevolution){
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R33: 0x%04x -> 0x%04x \t step per revolution\n", oldValue, stepPerRevolution);
-			pasynInt32SyncIO->write(r31_, 0x1235, 500);
-			pasynInt32SyncIO->write(r33_, stepPerRevolution, 500);
-			pasynInt32SyncIO->write(r31_, 0, 500);
+			r_[31]->write(0x1235);
+			r_[33]->write(stepPerRevolution);
+			r_[31]->write(0);
 		}
 	}
 
@@ -648,9 +493,9 @@ asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolut
  */
 asynStatus BeckAxis::hardReset() {
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Attention - Restoring factory setting of axis %d!\n", axisNo_);
-	pasynInt32SyncIO->write(r31_, 0x1235, 500);
-	pasynInt32SyncIO->write(r7_, 0x7000, 500);
-	pasynInt32SyncIO->write(r31_, 0, 500);
+	r_[31]->write(0x1235);
+	r_[7]->write(0x7000);
+	r_[31]->write(0);
 	return asynSuccess;
 }
 
@@ -661,9 +506,9 @@ asynStatus BeckAxis::hardReset() {
  */
 asynStatus BeckAxis::softReset() {
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Attention - Restoring saved setting of axis %d!\n", axisNo_);
-	pasynInt32SyncIO->write(r31_, 0x1235, 500);
-	pasynInt32SyncIO->write(r7_, 0x8000, 500);
-	pasynInt32SyncIO->write(r31_, 0, 500);
+	r_[31]->write(0x1235);
+	r_[7]->write(0x8000);
+	r_[31]->write(0);
 	return asynSuccess;
 }
 
@@ -675,10 +520,10 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%d, %d)\n", __FUNCTION__, encoder, watchdog);
 
 	//reset precedent errors
-	pasynUInt32DigitalSyncIO->write(controlByte_, 0x40, 0x40, 500);
+	controlByteBits_->write(0x40, 0x40);
 
-	//stop motor TODO how?
-	pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	//stop motor
+	stop(0.0);
 
 	//set feature register 1
 	epicsUInt32 featureReg, value;
@@ -686,22 +531,22 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 		  + 0x2 	//enable autostop
 		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2);
 
-	pasynUInt32DigitalSyncIO->read(r32_, &featureReg, 0x881e, 500);
+	ru_[32]->read(&featureReg, 0x881e);
 	if (featureReg!=value) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynUInt32DigitalSyncIO->write(r32_, value, 0x881e, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
+		r_[31]->write(0x1235);
+		ru_[32]->write(value, 0x881e);
+		r_[31]->write(0);
 	}
 
 	//set feature register 2
 	value = 0x8;	//enable idle
-	pasynUInt32DigitalSyncIO->read(r52_, &featureReg, 0x8, 500);
+	ru_[52]->read(&featureReg, 0x8);
 	if (featureReg!=value) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);
-		pasynUInt32DigitalSyncIO->write(r52_, value, 0x8, 500);
-		pasynInt32SyncIO->write(r31_, 0, 500);
+		r_[31]->write(0x1235);
+		ru_[52]->write(value, 0x8);
+		r_[31]->write(0);
 	}
 
 	return asynSuccess;
@@ -742,17 +587,17 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	int newr2 = newPos & 0xFFFF;
 	int newr3 = (newPos>>16) & 0xFFFF;
 	if (newr2!=lastr2) {
-		pasynInt32SyncIO->write(r2_, newr2, 500);
+		r_[2]->write(newr2);
 		lastr2 = newr2;
 	}
 	if (newr3!=lastr3) {
-		pasynInt32SyncIO->write(r3_, newr3, 500);
+		r_[3]->write(newr3);
 		lastr3 = newr3;
 	}
 	int curr_dataOut;
-	pasynInt32SyncIO->read(dataOut_, &curr_dataOut, 500);  //read from cache
+	dataOut_->read(&curr_dataOut);  //read from cache
 	if (curr_dataOut!=0){
-		pasynInt32SyncIO->write(dataOut_, 0, 500);
+		dataOut_->write(0);
 	}
 
 	int goCmd = exitingLimSw ? 0x5 : 0x25;
@@ -764,11 +609,11 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	callParamCallbacks();
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-starting position:\t%10.2f\n", currPos);
 	int curr_controByte;
-	pasynInt32SyncIO->read(controlByte_, &curr_controByte, 500);  //read from cache
+	controlByte_->read(&curr_controByte);  //read from cache
 	if (curr_controByte & 0x4) {  //we need a rising edge on bit 2 of controlByte -- if it is currently at 1, first zero it, then put to 1
-		pasynInt32SyncIO->write(controlByte_, 0x1, 500);
+		controlByte_->write(0x1);
 	}
-	pasynInt32SyncIO->write(controlByte_, goCmd, 500);  //the movement should now start
+	controlByte_->write(goCmd);  //the movement should now start
 	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
@@ -784,19 +629,19 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 	//set homing velocity and direction
 	if (home_velocity!=curr_home_velo or forward!=curr_forw){
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s: updating velocity and direction\n", __FUNCTION__);
-		pasynInt32SyncIO->write(r31_, 0x1235, 500);  //enable write to protected regs
+		r_[31]->write(0x1235);  //enable write to protected regs
 		if (home_velocity!=curr_home_velo) {
 			curr_home_velo = home_velocity;
 			home_velocity = (int) home_velocity* 0.016384;  //vel=mstep/sec/16Mhz*262144
-			pasynInt32SyncIO->write(r53_, home_velocity, 500);
-			pasynInt32SyncIO->write(r54_, home_velocity, 500);
+			r_[53]->write(home_velocity);
+			r_[54]->write(home_velocity);
 		}
 		if (forward!=curr_forw) {
 			curr_forw = forward;
 			forward = (bool) forward;
-			pasynUInt32DigitalSyncIO->write(r52_, forward, 0x1, 500);
+			ru_[52]->write(forward, 0x1);
 		}
-		pasynInt32SyncIO->write(r31_, 0, 500);  //disable write on protected regs
+		r_[31]->write(0);  //disable write on protected regs
 	}
 
 	//cannot start homing until both limit switches are not pressed
@@ -809,13 +654,12 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 	}
 
 	//start homing
-	pasynInt32SyncIO->write(dataOut_, 0, 500);
-	pasynInt32SyncIO->write(controlByte_, 1, 500);
-	pasynInt32SyncIO->write(r7_, 0x520, 500);
-	pasynInt32SyncIO->write(dataOut_, 0, 500);
+	dataOut_->write(0);
+	controlByte_->write(1);
+	r_[7]->write(0x520);
 
 	movePend=true;
-	pasynInt32SyncIO->write(controlByte_, 0x25, 500);
+	controlByte_->write(0x25);
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"Homing started!! ----------------------------------------------------\n");
 
 	//update lastDir, it is the contrary of the homing direction, as the homing ends moving away from limit switch
@@ -828,8 +672,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 asynStatus BeckAxis::stop(double acceleration){
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f)\n", __FUNCTION__, acceleration);
 
-	pasynUInt32DigitalSyncIO->write(controlByte_, 0, 0x4, 500);
-	//pasynInt32SyncIO->write(controlByte_, 0x21, 500);
+	controlByteBits_->write(0, 0x4);
 
 	return asynSuccess;
 }
@@ -861,7 +704,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	//if the move was started without limit switches auto stop, enable it as soon as out of limit switches
 	if (exitingLimSw && (partialLLow < lLow or partialLHigh < lHigh)) {  //falling edges on limit switches readings
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-out of limit switch %s\n", lHigh ? "HIGH" : "LOW");
-		pasynUInt32DigitalSyncIO->write(controlByte_, 0x20, 0x20, 500);  //enable limit switch auto stop
+		controlByteBits_->write(0x20, 0x20);  //enable limit switch auto stop
 		exitingLimSw = false;
 		if (startingHome) {  //re-launch homing to now perform homing from out of limsw
 			startingHome = false;
@@ -1132,47 +975,39 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 
 extern "C" int BeckDumpRegs(const char *driverName, const int axis)
 {
-	static const char *functionName = "BeckDumpRegs";
-	asynUser *reg;
-	asynStatus status;
+	asynInt32Client *reg;
 	char name[10];
 	epicsInt32 val;
 
-	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "SB");
-	if (status) {
-		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-	pasynInt32SyncIO->read(reg, &val, 500);
+	asynInt32Client *statusByte_ = new asynInt32Client(driverName, axis, "SB");
+	asynInt32Client *dataIn_ = new asynInt32Client(driverName, axis, "DI");
+	asynInt32Client *statusWord_ = new asynInt32Client(driverName, axis, "SW");
+	asynInt32Client *controlByte_ = new asynInt32Client(driverName, axis, "CB");
+	asynInt32Client *dataOut_ = new asynInt32Client(driverName, axis, "DO");
+	asynInt32Client *controlWord_ = new asynInt32Client(driverName, axis, "CW");
+
+	statusByte_->read(&val);
 	epicsStdoutPrintf("%s: 0x%04x\n", "SB", val);
 
-	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "SW");
-	if (status) {
-		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-	pasynInt32SyncIO->read(reg, &val, 500);
+	dataIn_->read(&val);
+	epicsStdoutPrintf("%s: 0x%04x\n", "DI", val);
+
+	statusWord_->read(&val);
 	epicsStdoutPrintf("%s: 0x%04x\n", "SW", val);
 
-	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "CB");
-	if (status) {
-		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-	pasynInt32SyncIO->read(reg, &val, 500);
+	controlByte_->read(&val);
 	epicsStdoutPrintf("%s: 0x%04x\n", "CB", val);
 
-	status = pasynInt32SyncIO->connect(driverName, axis, &reg, "CW");
-	if (status) {
-		epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
-	}
-	pasynInt32SyncIO->read(reg, &val, 500);
+	dataOut_->read(&val);
+	epicsStdoutPrintf("%s: 0x%04x\n", "DO", val);
+
+	controlWord_->read(&val);
 	epicsStdoutPrintf("%s: 0x%04x\n", "CW", val);
 
-	for (int i=1; i < 64; i++){
+	for (int i=0; i < KL2541_N_REG; i++){
 		sprintf(name, "R%02i", i);
-		status = pasynInt32SyncIO->connect(driverName, axis, &reg, name);
-		if (status) {
-			epicsStdoutPrintf("%s: cannot connect to Beckhoff driver\n", functionName);
-		}
-		pasynInt32SyncIO->read(reg, &val, 500);
+		reg = new asynInt32Client(driverName, axis, name);
+		reg->read(&val);
 		epicsStdoutPrintf("%s: 0x%04x\n", name, val);
 	}
     return asynSuccess;

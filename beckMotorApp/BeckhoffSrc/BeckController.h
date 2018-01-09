@@ -67,51 +67,27 @@ private:
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
                                    *   Abbreviated because it is used very frequently */
 
-  //asynUsers representing modbus registers
-  asynUser *statusByte_;
-  asynUser *dataIn_;
-  asynUser *statusWord_;
-  asynUser *controlByte_;
-  asynUser *dataOut_;
-  asynUser *controlWord_;
-
-  //asynUsers representing internal registers
-  asynUser *r0_;
-  asynUser *r1_;
-  asynUser *r2_;
-  asynUser *r3_;
-  asynUser *r7_;
-  asynUser *r8_;
-  asynUser *r31_;
-  asynUser *r32_;
-  asynUser *r33_;
-  asynUser *r35_;
-  asynUser *r36_;
-  asynUser *r38_;
-  asynUser *r39_;
-  asynUser *r40_;
-  asynUser *r42_;
-  asynUser *r43_;
-  asynUser *r44_;
-  asynUser *r46_;
-  asynUser *r50_;
-  asynUser *r52_;
-  asynUser *r53_;
-  asynUser *r54_;
-  asynUser *r55_;
-  asynUser *r56_;
-  asynUser *r58_;
-
   //asynClients representing internal registers
-  //std::vector<asynInt32Client *> r_;
+  std::vector<asynInt32Client *> r_;
+  //asynClients representing internal registers - bit access
+  std::vector<asynUInt32DigitalClient *> ru_;
+
 
   //asynClients representing modbus registers
-  //asynInt32Client *statusByte_;
-  //asynInt32Client *dataIn_;
-  //asynInt32Client *statusWord_;
-  //asynInt32Client *controlByte_;
-  //asynInt32Client *dataOut_;
-  //asynInt32Client *controlWord_;
+  asynInt32Client *statusByte_;
+  asynInt32Client *dataIn_;
+  asynInt32Client *statusWord_;
+  asynInt32Client *controlByte_;
+  asynInt32Client *dataOut_;
+  asynInt32Client *controlWord_;
+
+  //asynClients representing modbus registers
+  asynUInt32DigitalClient *statusByteBits_;
+  asynUInt32DigitalClient *dataInBits_;
+  asynUInt32DigitalClient *statusWordBits_;
+  asynUInt32DigitalClient *controlByteBits_;
+  asynUInt32DigitalClient *dataOutBits_;
+  asynUInt32DigitalClient *controlWordBits_;
 
 
   //a flag to indicate end of movement

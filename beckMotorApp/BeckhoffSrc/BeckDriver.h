@@ -32,6 +32,15 @@
 #include <array>
 #include <epicsEvent.h>
 
+#define KL2541_N_REG 64
+#define SB 0
+#define DI 1
+#define SW 2
+#define CB 0
+#define DO 1
+#define CW 2
+
+
 int getBeckMaxAddr(const char *portName);
 
 class BeckPortDriver : public asynPortDriver {
