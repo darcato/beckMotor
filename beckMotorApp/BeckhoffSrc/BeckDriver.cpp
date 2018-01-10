@@ -230,6 +230,8 @@ asynStatus BeckPortDriver::writeUInt32Digital(asynUser *pasynUser, epicsUInt32 v
 	/* Clear bits that are clear in the value and set in the mask */
 	rawValue  &= (value | ~mask);
 
+	printf("\n writing 0x%04x for val: 0x%04x\n", rawValue, value);
+
 	return writeInt32(pasynUser, rawValue);
 }
 

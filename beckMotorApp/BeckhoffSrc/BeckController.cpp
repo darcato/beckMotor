@@ -135,7 +135,7 @@ void BeckController::report(FILE *fp, int level)
  * while axis polls simply access to the cached data and interpret it.
  */
 asynStatus BeckController::poll() {
-	asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "polling...\n");
+	//asynPrint(pasynUserSelf, ASYN_TRACE_FLOW, "polling...\n");
 	pHighAlreadyRead = false;
 
 	size_t nin;
@@ -227,10 +227,11 @@ void BeckAxis::report(FILE *fp, int level) {
 asynStatus BeckAxis::updateCurrentPosition() {
 	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
 	pLow = pC_->memInp_cache[axisNo_][DI];
-	if ((((epicsInt32) currPos) &0x8000)!=(pLow&0x8000) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed
+	if ((((epicsInt32) currPos) & 0x8000)!=(pLow&0x8000) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed
 		size_t nin;
 		pC_->r_[1]->read(pC_->r1_cache, pC_->numAxes_, &nin);
 		pC_->pHighAlreadyRead = true;
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%d) Updated r1_cache: 0x%04x\n", __FUNCTION__, axisNo_, pC_->r1_cache[axisNo_]);
 	}
 	pHigh = pC_->r1_cache[axisNo_];
 
@@ -521,6 +522,7 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 
 	//reset precedent errors
 	controlByteBits_->write(0x40, 0x40);
+	controlByteBits_->write(0, 0x40);
 
 	//stop motor
 	stop(0.0);
@@ -670,9 +672,10 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 
 //Method to stop motor movement
 asynStatus BeckAxis::stop(double acceleration){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f)\n", __FUNCTION__, acceleration);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%.2f) -moving: %d\n", __FUNCTION__, acceleration, movePend);
 
-	controlByteBits_->write(0, 0x4);
+	controlByteBits_->write(1<<1, 0x2);
+	controlByteBits_->write(0, 0x2);
 
 	return asynSuccess;
 }
