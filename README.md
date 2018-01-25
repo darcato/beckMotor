@@ -97,15 +97,17 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
 1. Create a driver port from the beckhoff support
     - This is the lower layer of the driver which translates read/write with particular reasons to a sequence of instruction to mask the readings of internal registers and modbus ones. The supported reasons are:
         
-        | reason     | meaning           | purpose           |
-        | --------   | -------           | -------           |
-        | SB         | statusByte        | read/write statusByte,  1st register of input port  |
-        | DI         | dataIn            | read/write dataIn,      2nd register of input port  |
-        | SW         | statusWord        | read/write statusWord,  3rd register of input port  |
-        | CB         | controlByte       | read/write controlByte, 1st register of ouput port  |
-        | DO         | dataOut           | read/write dataOut,     2nd register of ouput port  |
-        | CW         | controlWord       | read/write controlWord, 3rd register of ouput port  |
-        | R00 -> R63 | internal register | read/write corresponding internal register          |
+        | reason     | meaning           | type           | access            | description       |
+        | --------   | -------           | -------        | -------           | -------           |
+        | SB         | statusByte        | asynInt32 / asynUInt32Digital / asynInt32Array   | R   | 1st register of input port  |
+        | DI         | dataIn            | asynInt32 / asynUInt32Digital / asynInt32Array   | R   | 2nd register of input port  |
+        | SW         | statusWord        | asynInt32 / asynUInt32Digital / asynInt32Array   | R   | 3rd register of input port  |
+        | CB         | controlByte       | asynInt32 / asynUInt32Digital / asynInt32Array   | R/W | 1st register of ouput port  |
+        | DO         | dataOut           | asynInt32 / asynUInt32Digital / asynInt32Array   | R/W | 2nd register of ouput port  |
+        | CW         | controlWord       | asynInt32 / asynUInt32Digital / asynInt32Array   | R/W | 3rd register of ouput port  |
+        | MI         | memoryIn          | asynInt32Array   | R   | all the input registers of n modules   |
+        | MO         | memoryOut         | asynInt32Array   | R/W | all the output registers of n modules  |
+        | R00 -> R63 | internal register | asynInt32 / asynUInt32Digital / asynInt32Array   | R/W | corresponding internal register |
     - This port implements asynInt32 and asynUInt32Digital interfaces and can be used directly in records for r/w operation. 
     Remember that some registers are write protected to reduce the stress on non-volatile memory: you first need to write to 0x1235 to register 31.
         - The syntax to create the port is:
