@@ -18,9 +18,9 @@ So we implemented an asynPortDriver port (called "motorDriver") to mask the vari
 
 ### Supported features
 Absolute and relative movement, automatically stop at limit switches and prevent wrong direction, homing, static setup at startup.
-**Not implemented**: encoder reading.
+**Not implemented**: encoder reading, velocity controlled movement.
 
-**WARNING:** remember to correctly configure limit switches (NC/NO contacts; which limit switch, low or high in movement coordinates, is connected to the first input) before starting operations, to avoid damages.
+**WARNING:** remember to correctly configure limit switches (NC/NO contacts; which limit switch, low or high in movement coordinates, is connected to the first input) before starting operations, to avoid damages. Modifying the NC/NO settings requires a restart of the beckhoff modules.
 
 ### Distribution
 This device support is distributed as a separate module, which uses the epics motor module, in order to keep the two separated. This was discussed in some tech-talks threads as a good 
@@ -30,13 +30,13 @@ The whole program is released under the GPL license.
 
 ### Required modules
 0. epics base (tested with 3.14.12.5)
-1. asyn (tested with R4-30, should work with not-too-old releases)
-2. modbus (R2.8+)
+1. asyn (R4.33+)
+2. modbus (R2.9+)
 3. motor (tested with R6-9)
 
 ### To-do
-- add support for encoders
-- switch from current modbus reading method (read the whole port and wait for interrupt) to new reading method with absolute addressing (each read is an actual modbusIO call) available in modbus 2.9
+- add support for encoders.
+- velocity controlled movements.
 
 ## How to install and use:
 1. Download (via git clone or via zip file) and place it (extracted) inside a directory that we will call $(SUPPORT). This is usually the place where you keep all the epics modules.
@@ -47,8 +47,8 @@ The whole program is released under the GPL license.
 
 1. If you havent't already done, you should create your application, see the epics guide. Then add to your application's **configure/RELEASE** asyn, modbus, motor and this device support (beckMotor):
 ```
-ASYN=$(SUPPORT)/asyn4-29
-MODBUS=$(SUPPORT)/modbus-R2-8
+ASYN=$(SUPPORT)/asyn4-33
+MODBUS=$(SUPPORT)/modbus-R2-9
 MOTOR=$(SUPPORT)/motorR6-9 (
 BECKMOTOR=$(SUPPORT)/beckMotor
 ```
@@ -74,6 +74,7 @@ yourIocName_LIBS += beckMotor
 ```
 #drvAsynIPPortConfigure(portName,  hostInfo,          priority, noAutoConnect, noProcessEos)
 drvAsynIPPortConfigure("EK9100_3", "172.16.17.3:502", 0,        0,             1)
+asynSetOption("EK9100_3",0, "disconnectOnReadTimeout", "Y")  #available since asyn 4-32
 ```
 
 1. Create a modbus interpose port from modbus module
@@ -85,11 +86,13 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
 1. Create 2 modbus ports, one for the input registers and one for the output ones
     - Its width must be at least 3*n where n is the number of consecutive bechoff kl2541 modules
     - The poll time should be 0 for the input port (disable polling, triggering readings when needed), and positive for the output one (update initial value at startup)
+    - The startAddr must always be -1 to use absolute addressing
+    - The two modbus functions used are: 3 for input registers, 16 for output ones
     
         ```
         #drvModbusAsynConfigure(portName,   tcpPortName, slaveAddr, funct, startAddr, length, dataType, pollMsec, plcType);
-        drvModbusAsynConfigure("inpRegs",  "EK9100_3",   1,         3,     0x0,       48,     0,        0,       "Beckhoff");
-        drvModbusAsynConfigure("outRegs",  "EK9100_3",   1,         6,     0x800,     48,     0,        50,      "Beckhoff");
+        drvModbusAsynConfigure("inpRegs",  "EK9100_3",   1,         3,     -1,        24,     0,        0,       "Beckhoff");
+        drvModbusAsynConfigure("outRegs",  "EK9100_3",   1,         16,    -1,        24,     0,        50,      "Beckhoff");
         ```
 1. Create a driver port from the beckhoff support
     - This is the lower layer of the driver which translates read/write with particular reasons to a sequence of instruction to mask the readings of internal registers and modbus ones. The supported reasons are:
@@ -108,19 +111,19 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
         - The syntax to create the port is:
         
         ```
-        #BeckCreateDriver("portName",   numberOfBeckModules, "inpModbusPort", "outmodbusPort")
-        BeckCreateDriver("motorDriver", 2,                    "inpRegs",      "outRegs")
+        #BeckCreateDriver("portName",   startAddress,  numberOfBeckModules, "inpModbusPort", "outmodbusPort")
+        BeckCreateDriver("motorDriver", 0,             8,                   "inpRegs",       "outRegs")
         ```
-        - where the numberOfBeckModules is the number of consecutive kl2541 to control
+        - where the numberOfBeckModules is the number of consecutive kl2541 to control and the startAddress is the starting address of the first module
     
 1. Create a controller port, from the beckhoff support
     - This is a port of type asynMotor and offers support to motor record.
     
     ```
     #BeckCreateController("portName",       "driverPortName", movingPollms, idlePollms) 
-    BeckCreateController("motorController", "motorDriver",    10,           100) 
+    BeckCreateController("motorController", "motorDriver",    100,          500) 
     ```
-    - where the last two values refers to the ms between a poll of the status of the module when moving and when still
+    - where the last two values refers to the ms between a poll of the status of the module when moving and when still. Please note that the polling is at least 20ms (for each controller, regardless of the number of axis) so avoid using too low values here which could saturate the available network resources. 
     
 1. **After ioc init has completed**, call the configuration commands. The general syntax is:
     
@@ -155,15 +158,14 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
         - #### INIT HOMING PARAMS
             
             ```
-            #BeckConfigController(controller,       axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, speedToHome, speedFromHome, emergencyAccl");
-            BeckConfigController("motorController", "0-1",  initHomingParams,    "0,           0,          0,         0,             100,         100,           2047");
+            #BeckConfigController(controller,       axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, speedFromHome, emergencyAccl");
+            BeckConfigController("motorController", "0-1",  initHomingParams,    "0,           0,          0,         0,             500,           1500");
             ```
             - refPosition: the value of the position to set when homing complete
             - NCcontacts: [0/1] if the contacts are normally closed or not
             - lsDownOne: [0/1] if the input one refers to the low limit switch (as for motor internal countings) or vice versa
             - homeAtStartup: [-1, 0, 1] if to home or not at startup, in the direction indicated by the sign of the value
-            - speedToHome: speed going towards the limit switch in homing procedure
-            - speedFromHome: speed moving out of limit switch in homing procedure
+            - homingSpeed: speed going towards the limit switch in homing procedure
             - emergencyAccl: the acceleration to stop motor when a limit switch is reached in homing procedure
         
         - #### INIT STEP RESOLUTION
@@ -172,8 +174,8 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
             #BeckConfigController(controller,       axisRange, initStepResolution, "microstepPerStep, stepPerRevolution");
             BeckConfigController("motorController", "0-1",     initStepResolution, "64,               200");
             ```
-            - microstepPerStep: how many microstep per step to set
-            - stepPerRevolution: how many step per full revolution
+            - microstepPerStep: how many microstep per step to set (max 64)
+            - stepPerRevolution: how many full step per full revolution
 
 1. Implement a database using controller port name for the motor records (as DTYP) and driver port name for others.
     - motor record example:
