@@ -59,7 +59,6 @@ BECKMOTOR=$(SUPPORT)/beckMotor
 yourIocName_DBD += asyn.dbd
 yourIocName_DBD += drvAsynIPPort.dbd
 yourIocName_DBD += modbusSupport.dbd
-yourIocName_DBD += motorRecord.dbd
 yourIocName_DBD += motorSupport.dbd
 yourIocName_DBD += beckMotor.dbd
 ```
