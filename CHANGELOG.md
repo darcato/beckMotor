@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## [2.0.1] - 2018-04-03
 ### Fixed
 - Using new asynPortDriver constructor for asyn >= 4.32. This removes compiling warnings/errors depending on your EPICS base version.
+- Removed compile warnings for unused variables
+- Fixed wrong position after homing procedure in some cases
 
 ## [2.0.0] - 2018-01-25
 ### Changed
