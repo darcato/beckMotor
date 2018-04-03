@@ -6,3 +6,9 @@
 *.pyc
 *.pydevproject
 .*
+O.*
+db/*
+dbd/*
+bin/*
+lib/*
+*envPaths
