@@ -414,7 +414,7 @@ asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsD
 	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
 	if (featureReg!=oldRegister){
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-Warning: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
+		epicsStdoutPrintf("\nport %s axis %d - WARNING: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n", pC_->portName, axisNo_);
 		r_[31]->write(0x1235);
 		ru_[52]->write(featureReg, 0xC000);
 		r_[31]->write(0);
@@ -685,9 +685,9 @@ asynStatus BeckAxis::stop(double acceleration){
 asynStatus BeckAxis::poll(bool *moving) {
 	//epicsStdoutPrintf("- %02d poll -- homing: %d  -- exitingLimSw: %d\n", axisNo_, startingHome, exitingLimSw);
 	epicsInt32 statusByte, statusWord;
-	bool regAccess, error, warning, ready, moveDone;
+	bool regAccess, error, ready, moveDone; //warning
 	bool partialLHigh, partialLLow;
-	epicsInt32 loadAngle;
+	//epicsInt32 loadAngle;
 
 	//update position
 	updateCurrentPosition();
@@ -728,7 +728,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 	if(!regAccess) { //should never be one, but just in case...
 		error = statusByte & 0x40;
 		setIntegerParam(pC_->motorStatusProblem_, error);
-		warning = statusByte & 0x20;
+		//warning = statusByte & 0x20;
 		moveDone = statusByte & 0x10;
 		if (moveDone && movePend) {  //movement has just finished
 			pC_->poll();
@@ -743,7 +743,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 		movePend = !moveDone;
 		*moving = movePend;
 		setIntegerParam(pC_->motorStatusDone_, moveDone);
-		loadAngle = statusByte & 0xE;
+		//loadAngle = statusByte & 0xE;
 		ready = statusByte & 0x1;
 		setIntegerParam(pC_->motorStatusPowerOn_, ready);
 	} else {
