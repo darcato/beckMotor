@@ -53,7 +53,7 @@ int getBeckMaxAddr(const char *portName) {
 //the addressing is done via the reason: SB, DI, SW, CB, DO, CW for the modbus regs and R00->R63 for the internal ones
 //implements asynInt32 and asynUInt32Digital
 BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, const char *inModbusPort, const char *outModbusPort)
-	: asynPortDriver( portName, nAxis, KL2541_N_REG+8, asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynDrvUserMask, asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask, ASYN_CANBLOCK | ASYN_MULTIDEVICE, 1, 0, 0)//,
+	: asynPortDriver( portName, nAxis, asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynDrvUserMask, asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask, ASYN_CANBLOCK | ASYN_MULTIDEVICE, 1, 0, 0)//,
 	//  triggerReadIn_(inModbusPort, 0, "MODBUS_READ"),
 	//  newDataIn_(inModbusPort, 0, "MODBUS_DATA")
 {
