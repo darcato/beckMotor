@@ -227,7 +227,7 @@ void BeckAxis::report(FILE *fp, int level) {
 asynStatus BeckAxis::updateCurrentPosition() {
 	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
 	pLow = pC_->memInp_cache[axisNo_][DI];
-	if ((((epicsInt32) currPos) & 0x8000)!=(pLow&0x8000) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed
+	if (((((epicsInt32) currPos) & 0x8000)!=(pLow&0x8000) || pLow==0) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed, or pLow is 0 (after homing)
 		size_t nin;
 		pC_->r_[1]->read(pC_->r1_cache, pC_->numAxes_, &nin);
 		pC_->pHighAlreadyRead = true;
