@@ -554,6 +554,40 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 	return asynSuccess;
 }
 
+/**
+ * To be called by shell command - mandatory
+ * Set encoder parameters
+ * ppr = pulse per revolution
+ * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
+ */
+asynStatus BeckAxis::initEncoder(int ppr, bool invert){
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-%s(%d, %d)\n", __FUNCTION__, ppr, invert);
+
+	epicsUInt32 featureReg, value;
+	epicsInt32 oldValue;
+
+	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
+	r_[34]->read(&oldValue);
+	if (oldValue!=ppr){
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-R34: 0x%04x -> 0x%04x \n", oldValue, ppr);
+		r_[31]->write(0x1235);
+		r_[34]->write(ppr);
+		r_[31]->write(0);
+	}
+
+	//set feature register 1
+	value = (invert << 6);
+	ru_[32]->read(&featureReg, 0x40);
+	if (featureReg!=value) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_FLOW,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s \n", featureReg, value, invert ? "inverted" : "not inverted");
+		r_[31]->write(0x1235);
+		ru_[32]->write(value, 0x40);
+		r_[31]->write(0);
+	}
+
+	return asynSuccess;
+}
+
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
 {
@@ -904,6 +938,32 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		epicsStdoutPrintf("\n");
 
 	}
+	else if (strcmp(cmd, "initEncoder") ==0 ) {
+			char *pprStr=0;
+			char *invertStr=0;
+
+			int nPar = sscanf(cmdArgs, "%m[^,],%m[^,]", &pprStr,
+														&invertStr);
+			double ppr = 0;
+			double invert = 0;
+
+			switch (nPar) {
+				case 2: epicsScanDouble(invertStr, &invert);
+				case 1: epicsScanDouble(pprStr, &ppr); break;
+				default: {
+					epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
+					return 0;
+				}
+			}
+
+			epicsStdoutPrintf("Applying to axis: ");
+			for (i=0; i<axisListLen; i++){
+				epicsStdoutPrintf("%d ", axisNumbers[i]);
+				axis[i]->initEncoder((int) ppr, (bool) invert);
+			}
+			epicsStdoutPrintf("\n");
+
+		}
 	else if (strcmp(cmd, "initHomingParams") ==0 ) {
 		char *refPositionStr;
 		char *NCcontactsStr;

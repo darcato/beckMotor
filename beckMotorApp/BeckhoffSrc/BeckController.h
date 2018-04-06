@@ -57,6 +57,7 @@ public:
   asynStatus hardReset();
   asynStatus softReset();
   asynStatus init(bool encoder, bool watchdog);
+  asynStatus initEncoder(int ppr, bool invert);
 
 private:
   asynStatus updateCurrentPosition();
