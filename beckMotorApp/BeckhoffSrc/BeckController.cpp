@@ -735,7 +735,7 @@ asynStatus BeckAxis::moveVelocity(double minVelocity, double maxVelocity, double
 	}
 	//a cycle of low-high or simply a rising edge on bit 0x20
 	controlByte_->read(&val);
-	if (val!=1) {
+	if (val!=1  && not movePend) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-reset controlByte to 1\n");
 		controlByte_->write(0x1);
 	}
