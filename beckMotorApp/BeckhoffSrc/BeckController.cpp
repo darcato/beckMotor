@@ -741,10 +741,19 @@ asynStatus BeckAxis::moveVelocity(double minVelocity, double maxVelocity, double
 	}
 	controlByte_->write(0x21);
 
+	epicsInt32 velocity = (int) (maxVelocity * 0.016384);  //conversion for beckhoff
+	//limit to 15 bit + sign register
+	if (velocity > 32767) {
+		velocity = 32767;
+	}
+	else if (velocity < -32768) {
+		velocity = -32768;
+	}
+
 	//start movement
 	movePend = true;
-	dataOut_->write((int) (maxVelocity * 0.016384));
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-starting position:\t%10.2f velocity %d\n", currPos, (int) (maxVelocity * 0.016384));
+	dataOut_->write(velocity);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-starting position:\t%10.2f velocity %d\n", currPos, velocity);
 	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
