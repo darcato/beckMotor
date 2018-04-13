@@ -115,42 +115,42 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 
 //readInt32 implementation
 asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "readInt32 with user %p and reason %d\n", pasynUser, pasynUser->reason);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "readInt32 with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
 
 	//if an internal register
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Register %d\n", pasynUser->reason-roffset);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Register %d\n", pasynUser->reason-roffset);
 		return readReg(pasynUser->reason-roffset, axis, value);
 
 	//else check which modbus register
 	} else if (pasynUser->reason == statusByteReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Byte\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Status Byte\n");
 		return statusByte_[axis]->read(value);
 
 	} else if (pasynUser->reason == dataInReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read DataIn\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read DataIn\n");
 		return dataIn_[axis]->read(value);
 
 	} else if (pasynUser->reason == statusWordReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Status Word\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Status Word\n");
 		return statusWord_[axis]->read(value);
 
 	//for the output modbus register I return a saved value because they can be read only one time
 	//this means this driver must be the only one accessing those registers
 	} else if (pasynUser->reason == controlByteReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Control Byte\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Control Byte\n");
 		*value = cache_[axis][CB];
 		return asynSuccess;
 
 	} else if (pasynUser->reason == dataOutReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Data Out\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Data Out\n");
 		*value = cache_[axis][DO];
 		return asynSuccess;
 
 	} else if (pasynUser->reason == controlWordReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Control Word\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Control Word\n");
 		*value = cache_[axis][CW];
 		return asynSuccess;
 
@@ -165,39 +165,39 @@ asynStatus BeckPortDriver::readInt32(asynUser *pasynUser, epicsInt32 *value) {
 asynStatus BeckPortDriver::writeInt32(asynUser *pasynUser, epicsInt32 value) {
 	epicsInt32 axis;
 	getAddress(pasynUser, &axis);
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "writeInt32 with value 0x%04x %i\n", value, axis);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "writeInt32 with value 0x%04x %i\n", value, axis);
 
 	//if an internal register
 	if (pasynUser->reason <= KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Write Register %d - 0x%x\n", pasynUser->reason-roffset, value);
 		return writeReg(pasynUser->reason-roffset, axis, value);
 
 	//if a modbus register
 	} else if (pasynUser->reason == controlByteReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Control Byte - 0x%x\n", value);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Write Control Byte - 0x%x\n", value);
 		cache_[axis][CB] = value;
 		return controlByte_[axis]->write(value);
 
 	} else if (pasynUser->reason == dataOutReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write DataOut - 0x%x\n", value);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Write DataOut - 0x%x\n", value);
 		cache_[axis][DO] = value;
 		return dataOut_[axis]->write(value);
 
 	} else if (pasynUser->reason == controlWordReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Write Control Word - 0x%x\n", value);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Write Control Word - 0x%x\n", value);
 		cache_[axis][CW] = value;
 		return controlWord_[axis]->write(value);
 
 	//cannot write to input registers, sorry.
 	} else {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Error: Wrong reason!\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Error: Wrong reason!\n");
 		return asynError;
 	}
 }
 
 //readUInt32Digital implementation
 asynStatus BeckPortDriver::readUInt32Digital(asynUser *pasynUser, epicsUInt32 *value, epicsUInt32 mask) {
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "readUInt32Digital with user %p, reason %d and mask 0x%04x\n", pasynUser, pasynUser->reason, mask);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "readUInt32Digital with user %p, reason %d and mask 0x%04x\n", pasynUser, pasynUser->reason, mask);
 
 	epicsInt32 rawValue;
 	asynStatus status;
@@ -209,13 +209,13 @@ asynStatus BeckPortDriver::readUInt32Digital(asynUser *pasynUser, epicsUInt32 *v
 
 	//simply apply a mask over the asynInt32 reading
 	*value = rawValue & mask;
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read 0x%04x with mask 0x%04x becomes 0x%04x\n", rawValue, mask, *value);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "Read 0x%04x with mask 0x%04x becomes 0x%04x\n", rawValue, mask, *value);
 	return asynSuccess;
 }
 
 //writeUInt32Digital implementation
 asynStatus BeckPortDriver::writeUInt32Digital(asynUser *pasynUser, epicsUInt32 value, epicsUInt32 mask) {
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "writeUInt32Digital with user %p, reason %d, value %d, and mask 0x%04x\n", pasynUser, pasynUser->reason, value, mask);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "writeUInt32Digital with user %p, reason %d, value %d, and mask 0x%04x\n", pasynUser, pasynUser->reason, value, mask);
 
 	epicsInt32 rawValue;
 	asynStatus status;
@@ -234,20 +234,20 @@ asynStatus BeckPortDriver::writeUInt32Digital(asynUser *pasynUser, epicsUInt32 v
 }
 
 asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value, size_t nElements, size_t *nIn) {
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "readInt32Array with user %p and reason %d\n", pasynUser, pasynUser->reason);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "readInt32Array with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axisFrom;
 	getAddress(pasynUser, &axisFrom);
 	asynStatus status;
 
 	//if an internal register
 	if (pasynUser->reason < KL2541_N_REG+roffset && pasynUser->reason>=roffset) {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Registers %d\n", pasynUser->reason-roffset);
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Registers %d\n", pasynUser->reason-roffset);
 		return readRegArray(pasynUser->reason-roffset, axisFrom, nElements, value, nIn);
 
 	//modbus input registers
 	//read all of them (efficient) and return only the interesting ones
 	} else if (pasynUser->reason == statusByteReas_ or pasynUser->reason == dataInReas_ or pasynUser->reason == statusWordReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Input Modbus Register\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Input Modbus Register\n");
 		size_t allnIn;  //how many actually read
 		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
 		size_t whichReg = pasynUser->reason - statusByteReas_;  //0=statusByte, 1=DataIn, 2=statusWord
@@ -264,7 +264,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 	//for the output modbus register I return a saved value because they can be read only one time
 	//this means this driver must be the only one accessing those registers
 	} else if (pasynUser->reason == controlByteReas_ or pasynUser->reason == dataOutReas_ or pasynUser->reason == controlWordReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Output Modbus Register\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Output Modbus Register\n");
 		*nIn=0; //will accumulate here the num of elements in value
 		for (size_t axis=axisFrom; axis-axisFrom<nElements && axis<nAxis_; axis++) {
 			value[(*nIn)++] = cache_[axis][pasynUser->reason-controlByteReas_];
@@ -273,7 +273,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//reding the whole memory in input
 	} else if (pasynUser->reason == memoryInReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Input\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Memory Input\n");
 		size_t allnIn;  //how many actually read
 		epicsInt32 allRegs[nRegs_];  //an array to receive the reading of all the input registers
 		status = inRegs_->read(allRegs, nRegs_, &allnIn);
@@ -288,7 +288,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 
 	//reding the whole memory in output (cache)
 	} else if (pasynUser->reason == memoryOutReas_){
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Read Memory Output (cache)\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Read Memory Output (cache)\n");
 		for ((*nIn)=0; *nIn<nElements && axisFrom+*nIn/3<nAxis_ && *nIn<nRegs_; (*nIn)++) {
 			value[*nIn] = cache_[axisFrom+(*nIn)/3][(*nIn)%3];  //return cache
 		}
@@ -301,7 +301,7 @@ asynStatus BeckPortDriver::readInt32Array(asynUser *pasynUser, epicsInt32 *value
 	}
 }
 asynStatus BeckPortDriver::writeInt32Array(asynUser *pasynUser, epicsInt32 *value, size_t nElements) {
-	asynPrint(pasynUser, ASYN_TRACE_FLOW, "writeInt32Array with user %p and reason %d\n", pasynUser, pasynUser->reason);
+	asynPrint(pasynUser, ASYN_TRACE_BECK, "writeInt32Array with user %p and reason %d\n", pasynUser, pasynUser->reason);
 	epicsInt32 axisFrom;
 	getAddress(pasynUser, &axisFrom);
 
@@ -329,7 +329,7 @@ asynStatus BeckPortDriver::writeInt32Array(asynUser *pasynUser, epicsInt32 *valu
 
 	//cannot write to input registers, sorry.
 	} else {
-		asynPrint(pasynUser, ASYN_TRACE_FLOW, "Error: Wrong reason!\n");
+		asynPrint(pasynUser, ASYN_TRACE_BECK, "Error: Wrong reason!\n");
 		return asynError;
 	}
 }

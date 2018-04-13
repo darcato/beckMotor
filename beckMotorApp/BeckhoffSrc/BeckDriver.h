@@ -40,6 +40,7 @@
 #define DO 1
 #define CW 2
 
+#define ASYN_TRACE_BECK 0x0040  //to enable debug prints on controller and driver ports asynSetTraceMask "motorController", 0, 0x0040
 
 int getBeckMaxAddr(const char *portName);
 

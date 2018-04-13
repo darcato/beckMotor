@@ -45,12 +45,23 @@ public:
   BeckAxis(class BeckController *pC, int axis);
 
   void report(FILE *fp, int level);
-  asynStatus move(double position, int relative, double min_velocity, double max_velocity, double acceleration);
-//  asynStatus moveVelocity(double min_velocity, double max_velocity, double acceleration);
-  asynStatus home(double min_velocity, double max_velocity, double acceleration, int forwards); //this may become goUp goDown
+
+  asynStatus move(double position, int relative, double minVelocity, double maxVelocity, double acceleration);
+  asynStatus moveVelocity(double minVelocity, double maxVelocity, double acceleration);
+  asynStatus home(double minVelocity, double maxVelocity, double acceleration, int forwards);
   asynStatus stop(double acceleration);
-  asynStatus poll(bool *moving); //pool and read infos from beckhoff
-//  asynStatus setClosedLoop(bool closedLoop);
+  asynStatus poll(bool *moving);
+  asynStatus setPosition(double position);
+  asynStatus setEncoderPosition(double position);
+  //asynStatus setHighLimit(double highLimit);
+  //asynStatus setLowLimit(double lowLimit);
+  //asynStatus setPGain(double pGain);
+  //asynStatus setIGain(double iGain);
+  //asynStatus setDGain(double dGain);
+  //asynStatus setClosedLoop(bool closedLoop);
+  asynStatus setEncoderRatio(double ratio);
+  asynStatus doMoveToHome();
+
   asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
   asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl);
   asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
