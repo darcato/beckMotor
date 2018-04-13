@@ -245,22 +245,23 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
 	//info at http://infosys.beckhoff.com/italiano.php?content=../content/1040/bk9000/html/bt_bk9000_title.htm&id=259
 	if (min_velocity!=curr_min_velo) {
 		curr_min_velo = min_velocity;
-		min_velocity = (int) min_velocity * 0.016384;  //vel=mstep/sec/16Mhz*262144
+		min_velocity = (int) (min_velocity * 0.016384);  //vel=mstep/sec/16Mhz*262144
 		r_[38]->write(min_velocity);
 	}
 	if (max_velocity!=curr_max_velo) {
 		curr_max_velo = max_velocity;
-		max_velocity = (int) max_velocity * 0.016384;
+		max_velocity = (int) (max_velocity * 0.016384);
 		r_[39]->write(max_velocity);
 	}
 	if (acceleration!=curr_acc) {
 		curr_acc = acceleration;
-		acceleration = (int) acceleration * 1.073742/1000;  //accl = mstep/s^2*2^38/(16Mhz)^2
+		acceleration = (int) (acceleration * 1.073742/1000);  //accl = mstep/s^2*2^38/(16Mhz)^2
 		r_[40]->write(acceleration);
 		r_[58]->write(acceleration);
 	}
 	return asynSuccess;
 }
+
 
 /**
  * To be called by shell command
@@ -595,7 +596,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 {
 	//TODO check for overflow in relative mode
 	//epicsStdoutPrintf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f, %i, %.2f, %.2f, %.2f)\n", axisNo_, __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
 
 	//This to prevent to put movePend to 1 if cannot move
 	if (movePend) return asynSuccess;
@@ -658,7 +659,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 //Method to execute the homing
 asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acceleration, int forward){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f, %.2f, %.2f, %d)\n", axisNo_, __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
 	//epicsStdoutPrintf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
 	startingHome = false;
 
@@ -709,7 +710,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 
 //Method to stop motor movement
 asynStatus BeckAxis::stop(double acceleration){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%.2f) -moving: %d\n", __FUNCTION__, acceleration, movePend);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f) -moving: %d\n", axisNo_, __FUNCTION__, acceleration, movePend);
 	//epicsStdoutPrintf("- %02d %s ( accl: %lf ) \n", axisNo_, __FUNCTION__,  acceleration);
 
 	controlByteBits_->write(1<<1, 0x2);
@@ -725,21 +726,25 @@ asynStatus BeckAxis::moveVelocity(double minVelocity, double maxVelocity, double
 	setAcclVelo(minVelocity, maxVelocity, acceleration);
 
 	epicsInt32 val;
-	//a cycle of low-high or simply a rising edge on bit 0x20
-	controlByte_->read(&val);
-	if (val!=1) {
-		controlByte_->write(0x1);
-	}
-	controlByte_->write(0x21);
+
 	//dataout must be zeroed to restart a new movement with same speed as before (so it can see changement)
 	dataOut_->read(&val);
 	if (val!=0 && not movePend) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK, "-reset dataOut to 0\n");
 		dataOut_->write(0x0);
 	}
+	//a cycle of low-high or simply a rising edge on bit 0x20
+	controlByte_->read(&val);
+	if (val!=1) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-reset controlByte to 1\n");
+		controlByte_->write(0x1);
+	}
+	controlByte_->write(0x21);
 
 	//start movement
 	movePend = true;
-	dataOut_->write((int) maxVelocity * 0.016384);
+	dataOut_->write((int) (maxVelocity * 0.016384));
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-starting position:\t%10.2f velocity %d\n", currPos, (int) (maxVelocity * 0.016384));
 	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
@@ -819,8 +824,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 			updateCurrentPosition();
 			setDoubleParam(pC_->motorPosition_, currPos);
 
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"");
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-startingHome is %d\n", startingHome);
+			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"", startingHome ? "homing unfinished":"");
 			if (startingHome) { //not yet out of limit switches, do another movement
 				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
 			}
@@ -828,6 +832,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 		movePend = !moveDone;
 		*moving = movePend;
 		setIntegerParam(pC_->motorStatusDone_, moveDone);
+		setIntegerParam(pC_->motorStatusMoving_, movePend);
 		//loadAngle = statusByte & 0xE;
 		ready = statusByte & 0x1;
 		setIntegerParam(pC_->motorStatusPowerOn_, ready);
