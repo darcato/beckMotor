@@ -150,11 +150,13 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
         - #### INIT
             
             ```
-            #BeckConfigController(controller,       axisRange, init, "encoder, watchdog");
-            BeckConfigController("motorController", "0-1",     init, "0,       0");
+            #BeckConfigController(controller,       axisRange, init, "encoder, watchdog, encoderPpr, encoderInvert");
+            BeckConfigController("motorController", "0-1",     init, "0,       0,        400,        0");
             ```
             - encoder: [0/1] if an encoder is to be used. Up to now encoder is not supported, write 0.
-            - whatchdog: [0/1] if a watchdog is to be used. 
+            - whatchdog: [0/1] if a watchdog is to be used.
+            - encoderPpr: the number of pulse per revolution of the choosen encoder
+            - encoderInvert: [0/1] if the encoder is mounted contrary to movement rotation
         
         - #### INIT CURRENTS
             

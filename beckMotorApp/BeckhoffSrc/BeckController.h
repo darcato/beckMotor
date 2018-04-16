@@ -67,8 +67,7 @@ public:
   asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
   asynStatus hardReset();
   asynStatus softReset();
-  asynStatus init(bool encoder, bool watchdog);
-  asynStatus initEncoder(int ppr, bool invert);
+  asynStatus init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert);
 
 private:
   asynStatus updateCurrentPosition();

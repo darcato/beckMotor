@@ -517,9 +517,13 @@ asynStatus BeckAxis::softReset() {
 /**
  * To be called by shell command - mandatory
  * Set general parameters
+ * encoder = use encoder
+ * whatchdog = enable whatchdog
+ * ppr = pulse per revolution
+ * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
  */
-asynStatus BeckAxis::init(bool encoder, bool watchdog) {
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d)\n", __FUNCTION__, encoder, watchdog);
+asynStatus BeckAxis::init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
 
 	//reset precedent errors
 	controlByteBits_->write(0x40, 0x40);
@@ -532,15 +536,16 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 
 	//set feature register 1
 	epicsUInt32 featureReg, value;
+	epicsInt32 oldValue;
 	value = 0x18	//path control mode
 		  + 0x2 	//enable autostop
-		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2);
+		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
 
-	ru_[32]->read(&featureReg, 0x881e);
+	ru_[32]->read(&featureReg, 0x885e);
 	if (featureReg!=value) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
 		r_[31]->write(0x1235);
-		ru_[32]->write(value, 0x881e);
+		ru_[32]->write(value, 0x885e);
 		r_[31]->write(0);
 	}
 
@@ -554,38 +559,13 @@ asynStatus BeckAxis::init(bool encoder, bool watchdog) {
 		r_[31]->write(0);
 	}
 
-	return asynSuccess;
-}
-
-/**
- * To be called by shell command - mandatory
- * Set encoder parameters
- * ppr = pulse per revolution
- * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
- */
-asynStatus BeckAxis::initEncoder(int ppr, bool invert){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d)\n", __FUNCTION__, ppr, invert);
-
-	epicsUInt32 featureReg, value;
-	epicsInt32 oldValue;
-	ppr = ppr * 4.0;  //this is a quadrature encoder
-
+	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
 	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
 	r_[34]->read(&oldValue);
-	if (oldValue!=ppr){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R34: 0x%04x -> 0x%04x \n", oldValue, ppr);
+	if (oldValue!=encoderPpr and encoder){
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R34: 0x%04x -> 0x%04x \n", oldValue, encoderPpr);
 		r_[31]->write(0x1235);
-		r_[34]->write(ppr);
-		r_[31]->write(0);
-	}
-
-	//set feature register 1
-	value = (invert << 6);
-	ru_[32]->read(&featureReg, 0x40);
-	if (featureReg!=value) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s \n", featureReg, value, invert ? "inverted" : "not inverted");
-		r_[31]->write(0x1235);
-		ru_[32]->write(value, 0x40);
+		r_[34]->write(encoderPpr);
 		r_[31]->write(0);
 	}
 
@@ -880,7 +860,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 	BeckController *ctrl = findBeckControllerByName(ctrlName);
 	if (ctrl == NULL) {
 		epicsStdoutPrintf("Cannot find controller %s!\n", ctrlName);
-		return 0;
+		return -1;
 	}
 
 	int axisNumbers[1000];
@@ -949,7 +929,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 1: epicsScanDouble(maxCurrStr, &maxCurr); break;
 			default: {
 				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return 0;
+				return -1;
 			}
 
 		}
@@ -981,55 +961,42 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 	else if (strcmp(cmd, "init") ==0 ) {
 		char *encoderStr=0;
 		char *watchdogStr=0;
+		char *encoderPprStr=0;
+		char *encoderInvertStr=0;
 
-		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,]", &encoderStr,
-													&watchdogStr);
+		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,]", &encoderStr,
+																  &watchdogStr,
+																  &encoderPprStr,
+																  &encoderInvertStr);
 		double encoder = 0;
 		double watchdog = 0;
+		double encoderPpr = 400;
+		double encoderInvert = 0;
 
 		switch (nPar) {
+			case 4: epicsScanDouble(encoderInvertStr, &encoderInvert);
+			case 3: epicsScanDouble(encoderPprStr, &encoderPpr);
 			case 2: epicsScanDouble(watchdogStr, &watchdog);
 			case 1: epicsScanDouble(encoderStr, &encoder); break;
 			default: {
 				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return 0;
+				return -1;
 			}
+		}
+
+		if (nPar<3 and encoder!=0) {
+			epicsStdoutPrintf("ERROR: Pulse per revolution parameter is mandatory when using encoder!\n");
+			return -1;
 		}
 
 		epicsStdoutPrintf("Applying to axis: ");
 		for (i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->init((bool) encoder, (bool) watchdog);
+			axis[i]->init((bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
 		}
 		epicsStdoutPrintf("\n");
 
 	}
-	else if (strcmp(cmd, "initEncoder") ==0 ) {
-			char *pprStr=0;
-			char *invertStr=0;
-
-			int nPar = sscanf(cmdArgs, "%m[^,],%m[^,]", &pprStr,
-														&invertStr);
-			double ppr = 0;
-			double invert = 0;
-
-			switch (nPar) {
-				case 2: epicsScanDouble(invertStr, &invert);
-				case 1: epicsScanDouble(pprStr, &ppr); break;
-				default: {
-					epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-					return 0;
-				}
-			}
-
-			epicsStdoutPrintf("Applying to axis: ");
-			for (i=0; i<axisListLen; i++){
-				epicsStdoutPrintf("%d ", axisNumbers[i]);
-				axis[i]->initEncoder((int) ppr, (bool) invert);
-			}
-			epicsStdoutPrintf("\n");
-
-		}
 	else if (strcmp(cmd, "initHomingParams") ==0 ) {
 		char *refPositionStr;
 		char *NCcontactsStr;
@@ -1059,7 +1026,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 1: epicsScanDouble(refPositionStr, &refPosition); break;
 			default: {
 				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return 0;
+				return -1;
 			}
 		}
 
@@ -1084,7 +1051,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			case 1: epicsScanDouble(microstepPerStepStr, &microstepPerStep); break;
 			default: {
 				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return 0;
+				return -1;
 			}
 		}
 
