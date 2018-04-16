@@ -568,6 +568,7 @@ asynStatus BeckAxis::initEncoder(int ppr, bool invert){
 
 	epicsUInt32 featureReg, value;
 	epicsInt32 oldValue;
+	ppr = ppr * 4.0;  //this is a quadrature encoder
 
 	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
 	r_[34]->read(&oldValue);
