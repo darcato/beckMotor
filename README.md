@@ -125,6 +125,17 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
     BeckCreateController("motorController", "motorDriver",    100,          500) 
     ```
     - where the last two values refers to the ms between a poll of the status of the module when moving and when still. Please note that the polling is at least 20ms (for each controller, regardless of the number of axis) so avoid using too low values here which could saturate the available network resources. 
+
+1. Enable debug if required
+    - If you want to enable degub mode, a specific mask has been created to be used with "asynSetTraceMask". It's value is 0x0040 and it enables all the printings related 
+      the beckMotor module. If you enable other bits (lower ones) you will get other printing according to the asyn specifications.
+    - You can specify the axis to print with the second parameter, or put -1 to enable all. Axes start at 0.
+
+    ```
+    #asynSetTraceMask(portname, axisRange, beckMask)
+    asynSetTraceMask("motorController", -1, 0x0040)  ##trace controller
+    asynSetTraceMask("motorDriver", -1, 0x0040)  ##trace driver
+    ```
     
 1. **After ioc init has completed**, call the configuration commands. The general syntax is:
     
