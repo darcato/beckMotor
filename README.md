@@ -126,7 +126,7 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
     ```
     - where the last two values refers to the ms between a poll of the status of the module when moving and when still. Please note that the polling is at least 20ms (for each controller, regardless of the number of axis) so avoid using too low values here which could saturate the available network resources. 
 
-1. Enable debug if required
+1. Enable debug (optional - for development purposes only)
     - If you want to enable degub mode, a specific mask has been created to be used with "asynSetTraceMask". It's value is 0x0040 and it enables all the printings related 
       the beckMotor module. If you enable other bits (lower ones) you will get other printing according to the asyn specifications.
     - You can specify the axis to print with the second parameter, or put -1 to enable all. Axes start at 0.
@@ -237,3 +237,102 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
             field (INP, "@asyn("motorDriver", $(NCHAN), $(TMOUT))R50")
         }
         ```
+
+## Usage notes
+Here some usage note are summed up to help a new user to understand the complexity 
+of the motor record.
+
+**NOTE:** See [motor record documentation](https://epics.anl.gov/bcda/synApps/motor/index.html "Official Documentation") 
+for complete usage documentation and field description.
+
+### Movements specifying the target position
+The easiest way to use the motor record is to write to the VAL field the new 
+desired position. The motor will move with speed and acceleration specified in VELO (step/s) 
+or S (revolutions/s) and ACCL (seconds to reach VMAX or SMAX starting from VBAS 
+or SBAS). As you can see two different methods are used to specify these values:
+the first one is based on the number of step/s (fields starting with V), the second
+one calculates everything in revolutions per second (the ones starting with S).
+To convert from one to the other representation, the record must know the numeber 
+of step per revolution; this is specified by the user via SREV field.
+
+To achieve relative moments one can externally add the value to the VAL field or 
+use other record fields which do this automatically. 
+ - The first option is to write a number of steps (both positive or negative) on RLV
+which will simply add it to VAL and perform the relative movemnt.
+ - For repetitive relative moments, one can write the absolute value of the
+desired movement on TWV and then perform a movement forward with TWF and backward 
+with TWR.
+
+To have a feedback on the current position the user can monitor the VAL field,
+which immediatedly displays the target position as soon as the motor is moved,
+or RBV which is a live update of the motor position as read from the controller.
+I prefer to use the RBV field. If there is an error you can force syncronization
+between VAL and RBV by writing 1 on SYNC (the RBV is copied to VAL).
+
+Limit switches status can be read on HLS (high limit switch) and LLS (low limit switch).
+The movement can be stopped at any time via the STOP field. When a movement ends 
+the motor record signal the event by inserting 1 in DMOV, while MOVN signal the
+moving status. When the target is missed by more than RDBD the record retry the 
+movement up to RTRY times. MOVN is 1 only while actually moving, while DMOV goes
+to 1 only after all the retries have been completed.
+
+All the movements can be reversed in direction by setting the DIR field.
+
+#### beckMotor specific settings
+The user can monitor the motor status by reading SW (status word) register of the 
+Beckhoff KL2541 as specified in the direct "register access example" above.
+This is a bitmap with the following meaning (from least significant bit):
+  1. Input 1
+  2. Input 2
+  3. Set Position Ready
+  4. Target Reached
+  5. Latch Valid
+  6. Latch DataIn
+  7. Latch Data Toggle
+  8. Encoder Disabled
+  9. Over Temperature
+  10. Under Voltage
+  11. Open Load, bride A
+  12. Opend Load, bridge B
+  13. Overcurrent, bridge A
+  14. Overcurrent, bridge B
+  15. No Control Power
+  16. Configuration Error
+
+All the configuration commands should be used in order to set paramenters, even
+the redundant ones (already present in record fields) because they are used to 
+configure the hardware. In particular it is important to specify if a limit switch
+is normally open or close to avoid damages.
+
+All the values in the motor record are in microstep when used.
+
+### Movements specifying the rotating speed
+
+To achieve a continuos movement (which is stopped only by external signal of STOP
+or by limit switches) the JOG function can be used. After specifying the velocity 
+with JVEL (step/s) and the jog acceleration with JAR (step/s^2) the user can start
+a movement in the forward direction with JOGF or in the reverse direction with JOGR.
+By changing the value of JVEL, the user can change the movement velocity on the fly.
+Finally, the movement is stopped with STOP.
+
+### Homing
+
+Homing is a procedure where the motor moves towards a limit switch, reaches it,
+changes direction and moves out of the limit switch. As soon as the limit switch
+is no more pressed, the motor stops and set its position to a reference value
+(usually 0). This is very usefull to start the movements from a known postion.
+
+This can be achieved by writing 1 to HOMF (forward) or HOMR (reverse).
+
+### Using the encoder
+
+To use the encoder the user MUST set MRES to 0.25 (quadrature encoder) and SREV 
+to the number of pulses per revolution of the choosen encoder. Furthermore the 
+microStepPerStep parameter in the configuration command should be 1 (microstep 
+are not supported) and the RDBD field should be manually set to 1 to avoid useless 
+retries. In fact, the record automatically set it to 0.25 if nothing is specified
+and this results on multiple retries.
+
+This way, when the initial configuration parameters specify to use the encoder, 
+the encoder value is simply reported as the motor readback value. The motor record
+encoder fields are not used.
