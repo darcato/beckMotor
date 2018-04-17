@@ -18,7 +18,6 @@ So we implemented an asynPortDriver port (called "motorDriver") to mask the vari
 
 ### Supported features
 Absolute and relative movement, automatically stop at limit switches and prevent wrong direction, homing, static setup at startup.
-**Not implemented**: encoder reading, velocity controlled movement.
 
 **WARNING:** remember to correctly configure limit switches (NC/NO contacts; which limit switch, low or high in movement coordinates, is connected to the first input) before starting operations, to avoid damages. Modifying the NC/NO settings requires a restart of the beckhoff modules.
 
@@ -34,10 +33,6 @@ The whole program is released under the GPL license.
 2. modbus (R2.9+)
 3. motor (tested with R6-9)
 
-### To-do
-- add support for encoders.
-- velocity controlled movements.
-
 ## How to install and use:
 1. Download (via git clone or via zip file) and place it (extracted) inside a directory that we will call $(SUPPORT). This is usually the place where you keep all the epics modules.
 
@@ -52,7 +47,6 @@ MODBUS=$(SUPPORT)/modbus-R2-9
 MOTOR=$(SUPPORT)/motorR6-9 (
 BECKMOTOR=$(SUPPORT)/beckMotor
 ```
-
 
 1. Include in your **src makefile** modbus module (1.8+ required), asyn and motor dbd and libs. The required are:
 ```
