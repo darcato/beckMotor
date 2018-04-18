@@ -29,6 +29,7 @@
 #include <string.h>
 #include <sstream>
 //#include <stdlib.h>
+#include <algorithm>
 
 #include <iocsh.h>
 #include <epicsThread.h>
@@ -46,6 +47,7 @@
 #include "BeckController.h"
 
 #define OUTOFSWITCH_STEPS 200
+#define NO_MASK 0xFFFF
 
 #include <cmath>
 
@@ -143,6 +145,150 @@ asynStatus BeckController::poll() {
 
 	return asynSuccess;
 }
+
+/**
+ * Like writeUInt32Digital method of beckDriver, but applied to arrays.
+ * Let you write an array of registers, applying a mask on all of them.
+ */
+asynStatus BeckController::writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld)\n", __FUNCTION__, client, value, mask, nElements);
+
+	int rawValue[nElements];
+	asynStatus status;
+	size_t nIn=0;
+
+	status = client->read(rawValue, nElements, &nIn);
+	if (status!=asynSuccess) {
+		return status;
+	}
+
+	for (size_t i=0; i<nIn; i++) {
+		/* Set bits that are set in the value and set in the mask */   // <-- smart guys
+		rawValue[i] |=  (value[i] & mask);
+		/* Clear bits that are clear in the value and set in the mask */
+		rawValue[i]  &= (value[i] | ~mask);
+	}
+
+	return client->write(rawValue, nIn);
+
+}
+
+/**
+ * Like readUInt32Digital method of beckDriver, but applied to arrays.
+ * Let you read an array of registers, applying a mask on all of them.
+ */
+asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements, size_t *nIn) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld %p)\n", __FUNCTION__, client, value, mask, nElements, nIn);
+	asynStatus status;
+
+	status = client->read(value, nElements, nIn);
+	if (status!=asynSuccess) {
+		return status;
+	}
+
+	//simply apply a mask over the asynInt32 reading
+	for (size_t i=0; i<*nIn; i++) {
+		value[i]= value[i] & mask;
+	}
+
+	return asynSuccess;
+
+}
+/**
+ * write the same value on all the registers pointed by a client
+ */
+bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, int mask, size_t nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %d, %d, %ld %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+
+	int tobewritten[nElem];
+	int oldValue[nElem];
+	size_t nIn;
+	bool toBeUpdated = false;
+
+	readUInt32DigitalArray(client, oldValue, mask, nElem, &nIn);
+	for (size_t i=0; i<nIn; i++) {
+		if (oldValue[i]!=(value & mask)) {
+			toBeUpdated = true;
+			break; //i must update at least one, so I update them all, the I/O time is the same
+		}
+	}
+
+	if (toBeUpdated) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"- %s -> 0x%04x\n", regName, value);
+
+		//insert password in all the registers 31 - this enables writing to protected registers
+		std::fill_n(tobewritten, nElem, 0x1235);
+		r_[31]->write(tobewritten, nIn);
+
+		//insert value inside the protected register
+		std::fill_n(tobewritten, nElem, value);
+		writeUInt32DigitalArray(client, tobewritten, mask, nIn);
+
+		//remove password
+		std::fill_n(tobewritten, nElem, 0);
+		r_[31]->write(tobewritten, nIn);
+	}
+
+	return toBeUpdated;
+}
+
+bool BeckController::axisRangeOk(int begin, int end) {
+	//chack that the range is valid: start<=end and start>=0 and end<=num of axis -1
+	if (begin > end or begin<0 or end>(numAxes_-1)) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"ERROR: Range %d-%d invalid.\n", begin, end);
+		return false;
+	}
+	return true;
+}
+
+/**
+ * To be called by shell command - mandatory
+ * Set general parameters
+ * encoder = use encoder
+ * whatchdog = enable whatchdog
+ * ppr = pulse per revolution
+ * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
+ */
+asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
+
+	//creating array clients starting at firstAxis
+	asynInt32ArrayClient *cb = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "CB");
+	asynInt32ArrayClient *r32 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R32");
+	asynInt32ArrayClient *r34 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R34");
+	asynInt32ArrayClient *r52 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R52");
+
+	size_t axisLen = lastAxis - firstAxis +1;
+
+	//reset precedent errors by putting 0 -> 1 -> 0 to bit 0x40 of control byte
+	//and stop all the axis by putting 0 -> 1 -> 0 to bit 0x2 of control byte
+	int tobewritten[axisLen];
+	std::fill_n(tobewritten, axisLen, 0);
+	writeUInt32DigitalArray(cb, tobewritten, 0x42, axisLen);
+	std::fill_n(tobewritten, axisLen, 0x42);
+	writeUInt32DigitalArray(cb, tobewritten, 0x42, axisLen);
+	std::fill_n(tobewritten, axisLen, 0);
+	writeUInt32DigitalArray(cb, tobewritten, 0x42, axisLen);
+
+	//set feature register 1
+	epicsInt32 value;
+	value = 0x18	//path control mode
+		  + 0x2 	//enable autostop
+		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
+
+	writeWithPassword(r32, value, 0x885e, axisLen, "R32");
+
+	//set feature register 2
+	value = 0x8;	//enable idle
+	writeWithPassword(r52, value, 0x8, axisLen, "R52");
+
+	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
+	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
+	writeWithPassword(r34, encoderPpr, NO_MASK, axisLen, "R34");
+
+	return asynSuccess;
+}
+
 
 //function called from iocsh to create a controller and save it into the _controllers vector
 extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
@@ -856,54 +1002,57 @@ BeckController * findBeckControllerByName(const char *name) {
 }
 
 //parse commands and call each function
-extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const char *cmd, const char *cmdArgs) {
+extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, const char *cmd, const char *cmdArgs) {
 	BeckController *ctrl = findBeckControllerByName(ctrlName);
 	if (ctrl == NULL) {
 		epicsStdoutPrintf("Cannot find controller %s!\n", ctrlName);
 		return -1;
 	}
 
-	int axisNumbers[1000];
-	int axisListLen=0, i=0;
+	int axisNumbers[100][2];
+	int axisListLen=0;
 	const char s[2] = ",";
 	char *token;
 
+	epicsStdoutPrintf("-config \n");
+
 	// First: parse strings separated by a semicolon
-	token = strtok(axisRange, s);
+	token = strtok(axisRangeStr, s);
 	while( token != NULL )
 	{
+		epicsStdoutPrintf("-while %s \n", axisRangeStr);
 		// Second: the string may be a range (ex: 3-5) or a single number
 		int begin, end;
 		int nParsed = sscanf(token, "%d-%d", &begin, &end);
 
-		//If it is a range put in a list all the elements, else only the single number
-		if(nParsed>1){
-			for (i=0; i<=end-begin; i++) {
-				axisNumbers[axisListLen+i] = begin +i;
-			}
-			axisListLen += end-begin+1;
-		} else {
-			axisNumbers[axisListLen++] = begin;
+		axisNumbers[axisListLen][0] = begin;
+		if (nParsed<2) {
+			end = begin;
 		}
+		axisNumbers[axisListLen][1] = end;
+		axisListLen++;
 		token = strtok(NULL, s);
 	}
 
-	//create a beckAxis instance for each axis in list
-	int k=0;
-	BeckAxis *axis[axisListLen];
 
-	for (i=0; i<axisListLen; i++) {
-		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
-		if (tmp != NULL) {
-			axis[i-k] = tmp;
-		}
-		else {
-			epicsStdoutPrintf("Axis %d notFound ", axisNumbers[i]);
-			k++;
-		}
-	}
-	axisListLen -= k;
 
+//	//create a beckAxis instance for each axis in list
+//	int k=0;
+//	BeckAxis *axis[axisListLen];
+//
+//	for (i=0; i<axisListLen; i++) {
+//		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
+//		if (tmp != NULL) {
+//			axis[i-k] = tmp;
+//		}
+//		else {
+//			epicsStdoutPrintf("Axis %d notFound ", axisNumbers[i]);
+//			k++;
+//		}
+//	}
+//	axisListLen -= k;
+
+	epicsStdoutPrintf("-Parsing \n");
 
 	//Now parse commands, and apply to list of axis
 	if (strcmp(cmd, "initCurrents") == 0) {
@@ -935,26 +1084,26 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		}
 
 		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
+		for (int i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
+			//axis[i]->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
 		}
 		epicsStdoutPrintf("\n");
 
 	}
 	else if (strcmp(cmd, "softReset") ==0 ) {
 		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
+		for (int i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->softReset();
+			//axis[i]->softReset();
 		}
 		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "hardReset") ==0 ) {
 		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
+		for (int i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->hardReset();
+			//axis[i]->hardReset();
 		}
 		epicsStdoutPrintf("\n");
 	}
@@ -989,12 +1138,13 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 			return -1;
 		}
 
-		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->init((bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
+		epicsStdoutPrintf("-Applying \n");
+		for (int i=0; i<axisListLen; i++){
+			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+				ctrl->init(axisNumbers[i][0], axisNumbers[i][1], (bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
+			}
 		}
-		epicsStdoutPrintf("\n");
 
 	}
 	else if (strcmp(cmd, "initHomingParams") ==0 ) {
@@ -1031,9 +1181,9 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		}
 
 		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
+		for (int i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
+			//axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
 		}
 		epicsStdoutPrintf("\n");
 	}
@@ -1056,16 +1206,15 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRange, const
 		}
 
 		epicsStdoutPrintf("Applying to axis: ");
-		for (i=0; i<axisListLen; i++){
+		for (int i=0; i<axisListLen; i++){
 			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			axis[i]->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
+			//axis[i]->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
 		}
 		epicsStdoutPrintf("\n");
 	}
 	else {
 		epicsStdoutPrintf("BeckConfigController: Command \"%s\" not found!\n", cmd);
 	}
-	//ADD: Encoder related fields
 	return(asynSuccess);
 }
 

@@ -153,6 +153,12 @@ public:
   BeckAxis* getAxis(int axisNo);
   asynStatus poll();
 
+  asynStatus init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert);
+  asynStatus readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements, size_t *nIn);
+  asynStatus writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements);
+  bool writeWithPassword(asynInt32ArrayClient *client, int value, int mask, size_t nElem, const char *regName);
+  bool axisRangeOk(int begin, int end);
+
   friend class BeckAxis;
   friend BeckController * findBeckControllerByName(const char *name);
 };
