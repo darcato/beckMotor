@@ -607,7 +607,6 @@ asynStatus BeckAxis::hardReset() {
 	return asynSuccess;
 }
 
-
 /**
  * To be called by shell command
  * Restore the Beckhoff module to the values saved in static memory
@@ -619,64 +618,6 @@ asynStatus BeckAxis::softReset() {
 	r_[31]->write(0);
 	return asynSuccess;
 }
-
-///**
-// * To be called by shell command - mandatory
-// * Set general parameters
-// * encoder = use encoder
-// * whatchdog = enable whatchdog
-// * ppr = pulse per revolution
-// * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
-// */
-//asynStatus BeckAxis::init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
-//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
-//
-//	//reset precedent errors
-//	controlByteBits_->write(0x40, 0x40);
-//	controlByteBits_->write(0, 0x40);
-//
-//	//stop motor
-//	if (movePend) {
-//		stop(0.0);
-//	}
-//
-//	//set feature register 1
-//	epicsUInt32 featureReg, value;
-//	epicsInt32 oldValue;
-//	value = 0x18	//path control mode
-//		  + 0x2 	//enable autostop
-//		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
-//
-//	ru_[32]->read(&featureReg, 0x885e);
-//	if (featureReg!=value) {
-//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
-//		r_[31]->write(0x1235);
-//		ru_[32]->write(value, 0x885e);
-//		r_[31]->write(0);
-//	}
-//
-//	//set feature register 2
-//	value = 0x8;	//enable idle
-//	ru_[52]->read(&featureReg, 0x8);
-//	if (featureReg!=value) {
-//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
-//		r_[31]->write(0x1235);
-//		ru_[52]->write(value, 0x8);
-//		r_[31]->write(0);
-//	}
-//
-//	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
-//	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
-//	r_[34]->read(&oldValue);
-//	if (oldValue!=encoderPpr and encoder){
-//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R34: 0x%04x -> 0x%04x \n", oldValue, encoderPpr);
-//		r_[31]->write(0x1235);
-//		r_[34]->write(encoderPpr);
-//		r_[31]->write(0);
-//	}
-//
-//	return asynSuccess;
-//}
 
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
