@@ -17,7 +17,7 @@ So we implemented an asynPortDriver port (called "motorDriver") to mask the vari
 (called "motorController", sorry!) reading and writing to the motorDriver port.
 
 ### Supported features
-Absolute and relative movement, automatically stop at limit switches and prevent wrong direction, homing, static setup at startup.
+Absolute and relative movement, automatically stop at limit switches and prevent wrong direction, homing, static setup at startup, encoders and sweep in velocity.
 
 **WARNING:** remember to correctly configure limit switches (NC/NO contacts; which limit switch, low or high in movement coordinates, is connected to the first input) before starting operations, to avoid damages. Modifying the NC/NO settings requires a restart of the beckhoff modules.
 
