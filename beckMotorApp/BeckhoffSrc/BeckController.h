@@ -62,17 +62,11 @@ public:
   asynStatus setEncoderRatio(double ratio);
   asynStatus doMoveToHome();
 
-  asynStatus initCurrents(double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
-  asynStatus initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl);
-  asynStatus initStepResolution(int microstepPerStep, int stepPerRevolution);
   asynStatus hardReset();
   asynStatus softReset();
-  asynStatus init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert);
 
 private:
   asynStatus updateCurrentPosition();
-//  asynStatus directMove(int position, int goCmd);
-//  asynStatus exitLimSw(bool usePos, int newPos);
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
 
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
@@ -154,9 +148,13 @@ public:
   asynStatus poll();
 
   asynStatus init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert);
-  asynStatus readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements, size_t *nIn);
-  asynStatus writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements);
-  bool writeWithPassword(asynInt32ArrayClient *client, int value, int mask, size_t nElem, const char *regName);
+  asynStatus initCurrents(int firstAxis, int lastAxis, double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
+  asynStatus initHomingParams(int firstAxis, int lastAxis, int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl);
+  asynStatus initStepResolution(int firstAxis, int lastAxis, int microstepPerStep, int stepPerRevolution);
+  asynStatus readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements, size_t *nIn);
+  asynStatus writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements);
+  bool writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, size_t nElem, const char *regName);
+  bool writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, size_t nElem, const char *regName);
   bool axisRangeOk(int begin, int end);
 
   friend class BeckAxis;

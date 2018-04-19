@@ -47,7 +47,7 @@
 #include "BeckController.h"
 
 #define OUTOFSWITCH_STEPS 200
-#define NO_MASK 0xFFFF
+#define NO_MASK 0xFFFFFFFF
 
 #include <cmath>
 
@@ -150,34 +150,39 @@ asynStatus BeckController::poll() {
  * Like writeUInt32Digital method of beckDriver, but applied to arrays.
  * Let you write an array of registers, applying a mask on all of them.
  */
-asynStatus BeckController::writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements) {
+asynStatus BeckController::writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements) {
 	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld)\n", __FUNCTION__, client, value, mask, nElements);
 
-	int rawValue[nElements];
-	asynStatus status;
-	size_t nIn=0;
+	if (mask!=NO_MASK) { // if NO_MASK the mask would not have any effect, so we avoid doing the useless read
+		int rawValue[nElements];
+		asynStatus status;
+		size_t nIn=0;
 
-	status = client->read(rawValue, nElements, &nIn);
-	if (status!=asynSuccess) {
-		return status;
+		status = client->read(rawValue, nElements, &nIn);
+		if (status!=asynSuccess) {
+			return status;
+		}
+
+		for (size_t i=0; i<nIn; i++) {
+			/* Set bits that are set in the value and set in the mask */   // <-- smart guys
+			rawValue[i] |=  (value[i] & mask);
+			/* Clear bits that are clear in the value and set in the mask */
+			rawValue[i]  &= (value[i] | ~mask);
+			/* Copy back to value */
+			value[i] = rawValue[i];
+		}
+
+		nElements = nIn;
 	}
 
-	for (size_t i=0; i<nIn; i++) {
-		/* Set bits that are set in the value and set in the mask */   // <-- smart guys
-		rawValue[i] |=  (value[i] & mask);
-		/* Clear bits that are clear in the value and set in the mask */
-		rawValue[i]  &= (value[i] | ~mask);
-	}
-
-	return client->write(rawValue, nIn);
-
+	return client->write(value, nElements);
 }
 
 /**
  * Like readUInt32Digital method of beckDriver, but applied to arrays.
  * Let you read an array of registers, applying a mask on all of them.
  */
-asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, int mask, size_t nElements, size_t *nIn) {
+asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements, size_t *nIn) {
 	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld %p)\n", __FUNCTION__, client, value, mask, nElements, nIn);
 	asynStatus status;
 
@@ -195,50 +200,55 @@ asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, 
 
 }
 /**
- * write the same value on all the registers pointed by a client
+ * write the an array of values value on all the registers pointed by a client
+ * writes only if necessary: a read is always performed
+ * to avoid useless writings to static memory
  */
-bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, int mask, size_t nElem, const char *regName) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %d, %d, %ld %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, size_t nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
 
-	int tobewritten[nElem];
+	int password[numAxes_];
 	int oldValue[nElem];
 	size_t nIn;
 	bool toBeUpdated = false;
 
 	readUInt32DigitalArray(client, oldValue, mask, nElem, &nIn);
 	for (size_t i=0; i<nIn; i++) {
-		if (oldValue[i]!=(value & mask)) {
+		if (oldValue[i]!= (int) (value[i] & mask)) {
 			toBeUpdated = true;
-			break; //i must update at least one, so I update them all, the I/O time is the same
+			asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s \t 0x%04x -> 0x%04x\n", regName, oldValue[i], value[i]);
 		}
 	}
 
 	if (toBeUpdated) {
-		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"- %s -> 0x%04x\n", regName, value);
-
 		//insert password in all the registers 31 - this enables writing to protected registers
-		std::fill_n(tobewritten, nElem, 0x1235);
-		r_[31]->write(tobewritten, nIn);
+		std::fill_n(password, numAxes_, 0x1235);
+		r_[31]->write(password, numAxes_);
 
 		//insert value inside the protected register
-		std::fill_n(tobewritten, nElem, value);
-		writeUInt32DigitalArray(client, tobewritten, mask, nIn);
+		writeUInt32DigitalArray(client, value, mask, nIn);
 
 		//remove password
-		std::fill_n(tobewritten, nElem, 0);
-		r_[31]->write(tobewritten, nIn);
+		std::fill_n(password, numAxes_, 0);
+		r_[31]->write(password, numAxes_);
 	}
 
 	return toBeUpdated;
 }
 
+/**
+ * write the same value on all the registers pointed by a client
+ */
+bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, size_t nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %d, %d, %ld, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+	int values[nElem];
+	std::fill_n(values, nElem, value);
+	return writeWithPassword(client, values, mask, nElem, regName);
+}
+
 bool BeckController::axisRangeOk(int begin, int end) {
 	//chack that the range is valid: start<=end and start>=0 and end<=num of axis -1
-	if (begin > end or begin<0 or end>(numAxes_-1)) {
-		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"ERROR: Range %d-%d invalid.\n", begin, end);
-		return false;
-	}
-	return true;
+	return (begin <= end and begin>=0 and end<=(numAxes_-1));
 }
 
 /**
@@ -250,7 +260,7 @@ bool BeckController::axisRangeOk(int begin, int end) {
  * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
  */
 asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d, %d, %d)\n", __FUNCTION__, firstAxis, lastAxis, encoder, watchdog, encoderPpr, encoderInvert);
 
 	//creating array clients starting at firstAxis
 	asynInt32ArrayClient *cb = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "CB");
@@ -276,15 +286,192 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 		  + 0x2 	//enable autostop
 		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
 
-	writeWithPassword(r32, value, 0x885e, axisLen, "R32");
+	writeWithPassword(r32, value, 0x885e, axisLen, "R32 featureReg1");
 
 	//set feature register 2
 	value = 0x8;	//enable idle
-	writeWithPassword(r52, value, 0x8, axisLen, "R52");
+	writeWithPassword(r52, value, 0x8, axisLen, "R52 featureReg2");
 
 	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
 	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
-	writeWithPassword(r34, encoderPpr, NO_MASK, axisLen, "R34");
+	writeWithPassword(r34, encoderPpr, NO_MASK, axisLen, "R34 increments per revolution");
+
+	return asynSuccess;
+}
+
+/**
+ * To be called by shell command
+ * Set the step resolution of the controller
+ */
+asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int microstepPerStep, int stepPerRevolution){
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d)\n", __FUNCTION__, firstAxis, lastAxis, microstepPerStep, stepPerRevolution);
+
+	//creating array clients starting at firstAxis
+	asynInt32ArrayClient *r46 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R46");
+	asynInt32ArrayClient *r33 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R33");
+
+	size_t axisLen = lastAxis - firstAxis +1;
+
+	if (microstepPerStep>0) {
+		if (microstepPerStep > 64) {
+			asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-Warning: Maximum microstep resolution is 64, setting 64!\n");
+			microstepPerStep = 64;
+		}
+		if (microstepPerStep < 1) {
+			asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-Warning: Minimum microstep resolution is 1, setting 1!\n");
+			microstepPerStep = 1;
+		}
+
+		//calculate value to be written in HW, as of beckhoff datasheet
+		microstepPerStep = round(log2(microstepPerStep));
+		//save the actual value as variable on each axis
+		for (int i=firstAxis; i<=lastAxis; i++){
+			BeckAxis *a = getAxis(i);
+			a->microstepPerStep = pow(2.0, microstepPerStep);
+		}
+
+		writeWithPassword(r46, microstepPerStep, NO_MASK, axisLen, "R46 microstep");
+	}
+
+	if (stepPerRevolution>0) {
+		writeWithPassword(r33, stepPerRevolution, NO_MASK, axisLen, "R33 stepPerRevolution");
+	}
+
+	return asynSuccess;
+}
+
+/**
+ * To be called by shell command
+ * Set coil currents of the motor
+ */
+asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxAmp, double autoHoldinCurr, double highAccCurr, double lowAccCurr) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %.2f, %.2f, %.2f, %.2f)\n", __FUNCTION__, firstAxis, lastAxis, maxAmp, autoHoldinCurr, highAccCurr, lowAccCurr);
+
+	//creating array clients starting at firstAxis
+	asynInt32ArrayClient *r35 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R35");
+	asynInt32ArrayClient *r36 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R36");
+	asynInt32ArrayClient *r42 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R42");
+	asynInt32ArrayClient *r43 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R43");
+	asynInt32ArrayClient *r44 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R44");
+
+	size_t axisLen = lastAxis - firstAxis +1;
+	epicsInt32 termType[numAxes_] = {0};
+	double fullScaleCurr[axisLen] = {0.0};
+	double setMaxAmp[axisLen] = {0.0};
+	int percent[axisLen];
+	size_t nIn;
+
+	//read controller code and convert ampere to %
+	r_[8]->read(termType, numAxes_, &nIn);
+
+	for (size_t i=0; i<axisLen; i++) {
+		switch (termType[firstAxis+i]) {
+			case 2531: fullScaleCurr[i] = 1.5; break;
+			case 2541: fullScaleCurr[i] = 5.0; break;
+			default: {
+				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Error: Cannot recognize controller type %d\n", firstAxis+i, termType[firstAxis+i]);
+				return asynError;
+			}
+		}
+		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", firstAxis+i, termType[firstAxis+i], fullScaleCurr[i]);
+
+		//R35: Maximum coil current A (in % to fullScale of device)
+		//R36: Maximum coil current B (in % to fullScale of device)
+		if (maxAmp>=0){
+			if (maxAmp>fullScaleCurr[i]) {
+				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", firstAxis+i, fullScaleCurr[i]);
+			}
+			percent[i] = round( std::min(maxAmp, fullScaleCurr[i]) / fullScaleCurr[i] *100 ); //enforce here fullScaleCurr as higher limit
+			setMaxAmp[i] = ((double) percent[i])/100.0*fullScaleCurr[i];
+		}
+
+	}
+
+	//update values
+	if (maxAmp>0) {
+		writeWithPassword(r35, percent, NO_MASK, axisLen, "R35 max coilA curr");
+		writeWithPassword(r36, percent, NO_MASK, axisLen, "R36 max coilB curr");
+	}
+
+	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
+	if (autoHoldinCurr>=0) {
+		for (size_t i=0; i<axisLen; i++) {
+			if (autoHoldinCurr>setMaxAmp[i]) {
+				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+			}
+			percent[i] = round( std::min(setMaxAmp[i], autoHoldinCurr) / setMaxAmp[i] *100 );
+		}
+		writeWithPassword(r44, percent, NO_MASK, axisLen, "R44 auto holding current");
+	}
+
+	//R42: Coil current, a > ath (in % to maxAmp)
+	if (highAccCurr>=0) {
+		for (size_t i=0; i<axisLen; i++) {
+			if (highAccCurr>setMaxAmp[i]) {
+				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+			}
+			percent[i] = round( std::min(setMaxAmp[i], highAccCurr) / setMaxAmp[i] *100 );
+		}
+		writeWithPassword(r42, percent, NO_MASK, axisLen, "R42 holding current a>a_th");
+	}
+
+	//R43: Coil current, a <= ath (in % to maxAmp)
+	if (lowAccCurr>=0) {
+		for (size_t i=0; i<axisLen; i++) {
+			if (lowAccCurr>setMaxAmp[i]) {
+				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n\n", firstAxis+i, setMaxAmp[i]);
+			}
+			percent[i] = round( std::min(setMaxAmp[i], lowAccCurr) / setMaxAmp[i] *100 );
+		}
+		writeWithPassword(r43, percent, NO_MASK, axisLen, "R43 holding current a<=a_th");
+	}
+
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"Currents written to the controller!\n");
+	return asynSuccess;
+}
+
+/**
+ * To be called by shell command
+ * Set parameters for the homing procedure
+ */
+asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl){
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d, %d, %d, %.2f, %.2f)\n", __FUNCTION__, firstAxis, lastAxis, refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, emergencyAccl);
+
+	//creating array clients starting at firstAxis
+	asynInt32ArrayClient *r50 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R50");
+	asynInt32ArrayClient *r52 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R52");
+	asynInt32ArrayClient *r53 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R53");
+	asynInt32ArrayClient *r54 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R54");
+	asynInt32ArrayClient *r55 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R55");
+	asynInt32ArrayClient *r56 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R56");
+
+	size_t axisLen = lastAxis - firstAxis +1;
+	epicsUInt32 featureReg;
+
+	writeWithPassword(r55, refPosition & 0xFFFF, NO_MASK, axisLen, "R55 reference position (low word)");
+	writeWithPassword(r56, (refPosition>>16) & 0xFFFF, NO_MASK, axisLen, "R56 reference position (high word)");
+
+	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
+	if (writeWithPassword(r52, featureReg, 0xC000, axisLen, "R52 featureReg2")){
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-WARNING: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
+	}
+
+	if (homingSpeed>=0){
+		writeWithPassword(r53, (int) homingSpeed, NO_MASK, axisLen, "R53 homing speed");
+		writeWithPassword(r54, (int) homingSpeed, NO_MASK, axisLen, "R54 homing speed");
+	}
+
+	if (emergencyAccl>=0){
+		writeWithPassword(r50, (int) emergencyAccl, NO_MASK, axisLen, "R50 emergency acceleration");
+	}
+
+	for (int i=firstAxis; i<=lastAxis; i++){
+		if (homeAtStartup!=0) {
+			getAxis(i)->home(100, 500, 1000, (homeAtStartup>0) ? 1 : 0);
+		}
+
+		getAxis(i)->limitSwitchDownIsInputOne = lsDownOne;
+	}
 
 	return asynSuccess;
 }
@@ -408,233 +595,6 @@ asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, doubl
 	return asynSuccess;
 }
 
-
-/**
- * To be called by shell command
- * Set coil currents of the motor
- */
-asynStatus BeckAxis::initCurrents(double maxAmp, double autoHoldinCurr, double highAccCurr, double lowAccCurr) {
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%.2f, %.2f, %.2f, %.2f)\n", __FUNCTION__, maxAmp, autoHoldinCurr, highAccCurr, lowAccCurr);
-	epicsInt32 termType = 0;
-	double fullScaleCurr;
-	int setMaxCurrentA, setMaxCurrentB, setHoldCurr, setHighAccCurr, setLowAccCurr;
-	double setMaxAmp;
-	int percent = -1;
-
-	//write passcode in register 31 to enable writing to static memory
-	r_[31]->write(0x1235);
-
-	//read controller code and convert ampere to %
-	r_[8]->read(&termType);
-	switch (termType) {
-		case 2531: fullScaleCurr = 1.5; break;
-		case 2541: fullScaleCurr = 5.0;	break;
-		default: {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Error: Cannot recognize controller type %d\n", termType);
-			return asynError;
-		}
-	}
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", termType, fullScaleCurr);
-
-	//R35: Maximum coil current A (in % to fullScale of device)
-	//R36: Maximum coil current B (in % to fullScale of device)
-	if (maxAmp>=0){
-		r_[35]->read(&setMaxCurrentA);
-		r_[36]->read(&setMaxCurrentB);
-
-		if (maxAmp>fullScaleCurr) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", fullScaleCurr);
-			maxAmp = fullScaleCurr;
-		}
-		percent = round( maxAmp / fullScaleCurr *100 );
-		if (setMaxCurrentA!=percent) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R35 0x%04x -> 0x%04x: max current A (%%)\n", setMaxCurrentA, percent);
-			r_[35]->write(percent);
-		}
-		if (setMaxCurrentB!=percent) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R36 0x%04x -> 0x%04x: max current B (%%)\n", setMaxCurrentB, percent);
-			r_[36]->write(percent);
-		}
-	}
-
-	//readback set maxAmp to check validity
-	r_[35]->read(&setMaxCurrentA);
-	r_[36]->read(&setMaxCurrentB);
-
-
-	//lower current to minimum common if found different
-	if (setMaxCurrentA>setMaxCurrentB) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentB/100*fullScaleCurr);
-		setMaxCurrentA = setMaxCurrentB;
-		r_[35]->write(setMaxCurrentA);
-	}
-	if (setMaxCurrentB>setMaxCurrentA) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Found different max currents in coils A and B, reverting to minor one: %.2lf\n", setMaxCurrentA/100*fullScaleCurr);
-		setMaxCurrentB = setMaxCurrentA;
-		r_[36]->write(setMaxCurrentB);
-	}
-
-	//check if the writing was unsuccessful
-	setMaxAmp = ((double) setMaxCurrentA)/100.0*fullScaleCurr;
-	if (maxAmp>=0 && abs(setMaxAmp-maxAmp)>0.01) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Error: Failed to write maxCurrent %.2lf vs %.2lf\n", maxAmp, setMaxAmp);
-		return asynError;
-	}
-
-	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
-	if (autoHoldinCurr>=0) {
-		r_[44]->read(&setHoldCurr);
-		if (autoHoldinCurr>setMaxAmp) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
-			autoHoldinCurr = setMaxAmp;
-		}
-		percent = round( autoHoldinCurr / setMaxAmp *100 );
-		if (setHoldCurr!=percent) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R44 0x%04x -> 0x%04x: auto holding current (%%)\n", setHoldCurr, percent);
-			r_[44]->write(percent);
-		}
-	}
-
-	//R42: Coil current, a > ath (in % to maxAmp)
-	if (highAccCurr>=0) {
-		r_[42]->read(&setHighAccCurr);
-
-		if (highAccCurr>setMaxAmp) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
-			highAccCurr = setMaxAmp;
-		}
-		percent = round( highAccCurr / setMaxAmp *100 );
-		if (setHighAccCurr!=percent) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R42 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setHighAccCurr, percent);
-			r_[42]->write(percent);
-		}
-	}
-
-	//R43: Coil current, a <= ath (in % to maxAmp)
-	if (lowAccCurr>=0) {
-		r_[43]->read(&setLowAccCurr);
-
-		if (lowAccCurr>setMaxAmp) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n", setMaxAmp);
-			lowAccCurr = setMaxAmp;
-		}
-		percent = round( lowAccCurr / setMaxAmp *100 );
-		if (setLowAccCurr!=percent) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R43 0x%04x -> 0x%04x: coil current a>ath (%%)\n", setLowAccCurr, percent);
-			r_[43]->write(percent);
-		}
-	}
-
-	//remove passcode from register 31
-	r_[31]->write(0);
-
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Currents written to the controller!\n");
-	return asynSuccess;
-}
-
-/**
- * To be called by shell command
- * Set parameters for the homing procedure
- */
-asynStatus BeckAxis::initHomingParams(int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d, %.2f, %.2f)\n", __FUNCTION__, refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, emergencyAccl);
-	epicsInt32 oldValue;
-	epicsUInt32 oldRegister, featureReg;
-
-	r_[55]->read(&oldValue);
-	if (oldValue!=(refPosition & 0xFFFF)){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R55: 0x%04x -> 0x%04x \t reference position (low word)\n", oldValue, refPosition & 0xFFFF);
-		r_[31]->write(0x1235);
-		r_[55]->write(refPosition & 0xFFFF);
-		r_[31]->write(0);
-	}
-
-	r_[56]->read(&oldValue);
-	if (oldValue!=((refPosition>>16) & 0xFFFF)){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R56: 0x%04x -> 0x%04x \t reference position (high word)\n", oldValue, (refPosition>>16) & 0xFFFF);
-		r_[31]->write(0x1235);
-		r_[56]->write((refPosition>>16) & 0xFFFF);
-		r_[31]->write(0);
-	}
-
-	ru_[52]->read(&oldRegister, 0xC000);
-	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
-	if (featureReg!=oldRegister){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R52: 0x%04x -> 0x%04x \t feature register 2\n", oldRegister, featureReg);
-		epicsStdoutPrintf("\nport %s axis %d - WARNING: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n", pC_->portName, axisNo_);
-		r_[31]->write(0x1235);
-		ru_[52]->write(featureReg, 0xC000);
-		r_[31]->write(0);
-	}
-
-	if (homingSpeed>=0){
-		r_[53]->read(&oldValue);
-		if (oldValue!=((int) homingSpeed)){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R53: 0x%04x -> 0x%04x \t speed to home\n", oldValue, (int) homingSpeed);
-			r_[31]->write(0x1235);
-			r_[53]->write((int) homingSpeed);
-			r_[54]->write((int) homingSpeed);
-			r_[31]->write(0);
-		}
-	}
-
-	if (emergencyAccl>=0){
-		r_[50]->read(&oldValue);
-		if (oldValue!=((int) emergencyAccl)){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R50: 0x%04x -> 0x%04x \t emergency acceleration\n", oldValue, (int) emergencyAccl);
-			r_[50]->write((int) emergencyAccl);
-		}
-	}
-
-	if (homeAtStartup!=0) {
-		home(100, 500, 1000, (homeAtStartup>0) ? 1 : 0);
-	}
-	limitSwitchDownIsInputOne = lsDownOne;
-	return asynSuccess;
-}
-
-/**
- * To be called by shell command
- * Set the step resolution of the controller
- */
-asynStatus BeckAxis::initStepResolution(int microstepPerStep, int stepPerRevolution){
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d)\n", __FUNCTION__, microstepPerStep, stepPerRevolution);
-	epicsInt32 oldValue;
-	if (microstepPerStep>0) {
-		if (microstepPerStep > 64) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Maximum microstep resolution is 64, setting 64!\n");
-			microstepPerStep = 64;
-		}
-		if (microstepPerStep < 1) {
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"Minimum microstep resolution is 1, setting 1!\n");
-			microstepPerStep = 1;
-		}
-
-		this->microstepPerStep = microstepPerStep;
-		microstepPerStep = round(log2(microstepPerStep));
-
-		r_[46]->read(&oldValue);
-		if (oldValue!=microstepPerStep){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R46: 0x%04x -> 0x%04x \t microstep per step (equivalent to %d -> %d microstep)\n", oldValue, (int) microstepPerStep, (int) pow(2, oldValue), this->microstepPerStep);
-			r_[31]->write(0x1235);
-			r_[46]->write(microstepPerStep);
-			r_[31]->write(0);
-		}
-	}
-
-	if (stepPerRevolution>0) {
-		r_[33]->read(&oldValue);
-		if (oldValue!=stepPerRevolution){
-			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R33: 0x%04x -> 0x%04x \t step per revolution\n", oldValue, stepPerRevolution);
-			r_[31]->write(0x1235);
-			r_[33]->write(stepPerRevolution);
-			r_[31]->write(0);
-		}
-	}
-
-	return asynSuccess;
-}
-
 /**
  * To be called by shell command
  * Restore the BEckhoff module to its factory settings
@@ -660,63 +620,63 @@ asynStatus BeckAxis::softReset() {
 	return asynSuccess;
 }
 
-/**
- * To be called by shell command - mandatory
- * Set general parameters
- * encoder = use encoder
- * whatchdog = enable whatchdog
- * ppr = pulse per revolution
- * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
- */
-asynStatus BeckAxis::init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
-
-	//reset precedent errors
-	controlByteBits_->write(0x40, 0x40);
-	controlByteBits_->write(0, 0x40);
-
-	//stop motor
-	if (movePend) {
-		stop(0.0);
-	}
-
-	//set feature register 1
-	epicsUInt32 featureReg, value;
-	epicsInt32 oldValue;
-	value = 0x18	//path control mode
-		  + 0x2 	//enable autostop
-		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
-
-	ru_[32]->read(&featureReg, 0x885e);
-	if (featureReg!=value) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
-		r_[31]->write(0x1235);
-		ru_[32]->write(value, 0x885e);
-		r_[31]->write(0);
-	}
-
-	//set feature register 2
-	value = 0x8;	//enable idle
-	ru_[52]->read(&featureReg, 0x8);
-	if (featureReg!=value) {
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
-		r_[31]->write(0x1235);
-		ru_[52]->write(value, 0x8);
-		r_[31]->write(0);
-	}
-
-	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
-	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
-	r_[34]->read(&oldValue);
-	if (oldValue!=encoderPpr and encoder){
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R34: 0x%04x -> 0x%04x \n", oldValue, encoderPpr);
-		r_[31]->write(0x1235);
-		r_[34]->write(encoderPpr);
-		r_[31]->write(0);
-	}
-
-	return asynSuccess;
-}
+///**
+// * To be called by shell command - mandatory
+// * Set general parameters
+// * encoder = use encoder
+// * whatchdog = enable whatchdog
+// * ppr = pulse per revolution
+// * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
+// */
+//asynStatus BeckAxis::init(bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
+//	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d, %d, %d, %d)\n", __FUNCTION__, encoder, watchdog, encoderPpr, encoderInvert);
+//
+//	//reset precedent errors
+//	controlByteBits_->write(0x40, 0x40);
+//	controlByteBits_->write(0, 0x40);
+//
+//	//stop motor
+//	if (movePend) {
+//		stop(0.0);
+//	}
+//
+//	//set feature register 1
+//	epicsUInt32 featureReg, value;
+//	epicsInt32 oldValue;
+//	value = 0x18	//path control mode
+//		  + 0x2 	//enable autostop
+//		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
+//
+//	ru_[32]->read(&featureReg, 0x885e);
+//	if (featureReg!=value) {
+//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg1 0x%04x -> 0x%04x: encoder %s and watchdog %s\n", featureReg, value, encoder ? "enabled" : "disabled", watchdog ? "present" : "absent");
+//		r_[31]->write(0x1235);
+//		ru_[32]->write(value, 0x885e);
+//		r_[31]->write(0);
+//	}
+//
+//	//set feature register 2
+//	value = 0x8;	//enable idle
+//	ru_[52]->read(&featureReg, 0x8);
+//	if (featureReg!=value) {
+//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-FeatureReg2 0x%04x -> 0x%04x: idle active\n", featureReg, value);
+//		r_[31]->write(0x1235);
+//		ru_[52]->write(value, 0x8);
+//		r_[31]->write(0);
+//	}
+//
+//	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
+//	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
+//	r_[34]->read(&oldValue);
+//	if (oldValue!=encoderPpr and encoder){
+//		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R34: 0x%04x -> 0x%04x \n", oldValue, encoderPpr);
+//		r_[31]->write(0x1235);
+//		r_[34]->write(encoderPpr);
+//		r_[31]->write(0);
+//	}
+//
+//	return asynSuccess;
+//}
 
 //Method to execute movement
 asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
@@ -1005,8 +965,8 @@ BeckController * findBeckControllerByName(const char *name) {
 extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, const char *cmd, const char *cmdArgs) {
 	BeckController *ctrl = findBeckControllerByName(ctrlName);
 	if (ctrl == NULL) {
-		epicsStdoutPrintf("Cannot find controller %s!\n", ctrlName);
-		return -1;
+		epicsStdoutPrintf("-ERROR: Cannot find controller %s!\n", ctrlName);
+		return asynError;
 	}
 
 	int axisNumbers[100][2];
@@ -1014,13 +974,10 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 	const char s[2] = ",";
 	char *token;
 
-	epicsStdoutPrintf("-config \n");
-
 	// First: parse strings separated by a semicolon
 	token = strtok(axisRangeStr, s);
 	while( token != NULL )
 	{
-		epicsStdoutPrintf("-while %s \n", axisRangeStr);
 		// Second: the string may be a range (ex: 3-5) or a single number
 		int begin, end;
 		int nParsed = sscanf(token, "%d-%d", &begin, &end);
@@ -1033,26 +990,6 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		axisListLen++;
 		token = strtok(NULL, s);
 	}
-
-
-
-//	//create a beckAxis instance for each axis in list
-//	int k=0;
-//	BeckAxis *axis[axisListLen];
-//
-//	for (i=0; i<axisListLen; i++) {
-//		BeckAxis *tmp = ctrl->getAxis(axisNumbers[i]);
-//		if (tmp != NULL) {
-//			axis[i-k] = tmp;
-//		}
-//		else {
-//			epicsStdoutPrintf("Axis %d notFound ", axisNumbers[i]);
-//			k++;
-//		}
-//	}
-//	axisListLen -= k;
-
-	epicsStdoutPrintf("-Parsing \n");
 
 	//Now parse commands, and apply to list of axis
 	if (strcmp(cmd, "initCurrents") == 0) {
@@ -1077,35 +1014,39 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 			case 2: epicsScanDouble(autoHoldinCurrStr, &autoHoldinCurr);
 			case 1: epicsScanDouble(maxCurrStr, &maxCurr); break;
 			default: {
-				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return -1;
+				epicsStdoutPrintf("-ERROR: Wrong number of parameters: %d!\n", nPar);
+				return asynError;
 			}
 
 		}
 
-		epicsStdoutPrintf("Applying to axis: ");
 		for (int i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			//axis[i]->initCurrents(maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
+			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+				ctrl->initCurrents(axisNumbers[i][0], axisNumbers[i][1], maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
+			} else {
+				epicsStdoutPrintf("-ERROR: Invalid range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+			}
 		}
-		epicsStdoutPrintf("\n");
 
 	}
 	else if (strcmp(cmd, "softReset") ==0 ) {
-		epicsStdoutPrintf("Applying to axis: ");
 		for (int i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			//axis[i]->softReset();
+			for (int j=axisNumbers[i][0]; i<=axisNumbers[i][1]; j++){
+				epicsStdoutPrintf("-%02d Soft reset... \n", i);
+				ctrl->getAxis(i)->softReset();
+			}
+
 		}
-		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "hardReset") ==0 ) {
-		epicsStdoutPrintf("Applying to axis: ");
 		for (int i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			//axis[i]->hardReset();
+			for (int j=axisNumbers[i][0]; i<=axisNumbers[i][1]; j++){
+				epicsStdoutPrintf("-%02d Hard reset... \n", i);
+				ctrl->getAxis(i)->hardReset();
+			}
+
 		}
-		epicsStdoutPrintf("\n");
 	}
 	else if (strcmp(cmd, "init") ==0 ) {
 		char *encoderStr=0;
@@ -1128,21 +1069,22 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 			case 2: epicsScanDouble(watchdogStr, &watchdog);
 			case 1: epicsScanDouble(encoderStr, &encoder); break;
 			default: {
-				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return -1;
+				epicsStdoutPrintf("-ERROR: Wrong number of parameters: %d!\n", nPar);
+				return asynError;
 			}
 		}
 
 		if (nPar<3 and encoder!=0) {
 			epicsStdoutPrintf("ERROR: Pulse per revolution parameter is mandatory when using encoder!\n");
-			return -1;
+			return asynError;
 		}
 
-		epicsStdoutPrintf("-Applying \n");
 		for (int i=0; i<axisListLen; i++){
 			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 				ctrl->init(axisNumbers[i][0], axisNumbers[i][1], (bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
+			} else {
+				epicsStdoutPrintf("-ERROR: Invalid range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 			}
 		}
 
@@ -1175,17 +1117,20 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 			case 2: epicsScanDouble(NCcontactsStr, &NCcontacts);
 			case 1: epicsScanDouble(refPositionStr, &refPosition); break;
 			default: {
-				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return -1;
+				epicsStdoutPrintf("-ERROR: Wrong number of parameters: %d!\n", nPar);
+				return asynError;
 			}
 		}
 
-		epicsStdoutPrintf("Applying to axis: ");
 		for (int i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			//axis[i]->initHomingParams((int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
+			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+				ctrl->initHomingParams(axisNumbers[i][0], axisNumbers[i][1], (int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
+			} else {
+				epicsStdoutPrintf("-ERROR: Invalid range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+			}
 		}
-		epicsStdoutPrintf("\n");
+
 	}
 	else if (strcmp(cmd, "initStepResolution") ==0 ) {
 		char *microstepPerStepStr;
@@ -1200,20 +1145,24 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 			case 2: epicsScanDouble(stepPerRevolutionStr, &stepPerRevolution);
 			case 1: epicsScanDouble(microstepPerStepStr, &microstepPerStep); break;
 			default: {
-				epicsStdoutPrintf("Wrong number of parameters: %d!\n", nPar);
-				return -1;
+				epicsStdoutPrintf("-ERROR: Wrong number of parameters: %d!\n", nPar);
+				return asynError;
 			}
 		}
 
-		epicsStdoutPrintf("Applying to axis: ");
 		for (int i=0; i<axisListLen; i++){
-			epicsStdoutPrintf("%d ", axisNumbers[i]);
-			//axis[i]->initStepResolution((int) microstepPerStep, (int) stepPerRevolution);
+			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+				ctrl->initStepResolution(axisNumbers[i][0], axisNumbers[i][1], (int) microstepPerStep, (int) stepPerRevolution);
+			} else {
+				epicsStdoutPrintf("-ERROR: Invalid range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
+			}
 		}
-		epicsStdoutPrintf("\n");
+
 	}
 	else {
-		epicsStdoutPrintf("BeckConfigController: Command \"%s\" not found!\n", cmd);
+		epicsStdoutPrintf("-ERROR: BeckConfigController: Command \"%s\" not found!\n", cmd);
+		return asynError;
 	}
 	return(asynSuccess);
 }
