@@ -6,10 +6,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [2.1.0] - 2018-04-19
+## [2.1.0] - 2018-04-20
 ### Added
 - Support for encoders
-- support for jog movements (moveVelocity) - the motor moves with a certain velocity in one direction until stopped
+- Support for jog movements (moveVelocity) - the motor moves with a certain velocity in one direction until stopped
+- Added documentation for motor record usage
 
 ### Changed
 - Performace improvements on the config commands when used on axis ranges.
