@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.1.1] - 2018-04-20
+### Fixed
+- Fixed crash when beckhoff not connected
+
 ## [2.1.0] - 2018-04-20
 ### Added
 - Support for encoders
