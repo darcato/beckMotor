@@ -97,7 +97,7 @@ private:
   bool movePend;
   double currPos, lastDir;
   bool lHigh, lLow;
-  bool limitSwitchDownIsInputOne;
+  bool limitSwitchDownIsInputOne, encoderEnabled;
   epicsInt32 microstepPerStep;
   double curr_min_velo, curr_max_velo, curr_home_velo, curr_acc;
   int curr_forw;

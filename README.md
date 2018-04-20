@@ -322,12 +322,10 @@ This can be achieved by writing 1 to HOMF (forward) or HOMR (reverse).
 
 ### Using the encoder
 
-To use the encoder the user MUST set MRES to 0.25 (quadrature encoder) and SREV 
-to the number of pulses per revolution of the choosen encoder. Furthermore the 
-microStepPerStep parameter in the configuration command should be 1 (microstep 
-are not supported) and the RDBD field should be manually set to 1 to avoid useless 
-retries. In fact, the record automatically set it to 0.25 if nothing is specified
-and this results on multiple retries.
+To use the encoder the corresponding field on the configuration command must be
+1 and the microStepPerStep parameter should be 1 (microstep 
+are not supported). The RDBD field can be manually adjusted to avoid useless retries 
+when the encoder reports a position slightly different from the set one.
 
 This way, when the initial configuration parameters specify to use the encoder, 
 the encoder value is simply reported as the motor readback value. The motor record

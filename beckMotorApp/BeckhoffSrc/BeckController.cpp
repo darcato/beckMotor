@@ -266,6 +266,7 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 	asynInt32ArrayClient *cb = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "CB");
 	asynInt32ArrayClient *r32 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R32");
 	asynInt32ArrayClient *r34 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R34");
+	asynInt32ArrayClient *r46 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R46");
 	asynInt32ArrayClient *r52 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R52");
 
 	size_t axisLen = lastAxis - firstAxis +1;
@@ -279,6 +280,17 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 	writeUInt32DigitalArray(cb, tobewritten, 0x42, axisLen);
 	std::fill_n(tobewritten, axisLen, 0);
 	writeUInt32DigitalArray(cb, tobewritten, 0x42, axisLen);
+
+	//in case of encoder microstepping must be disabled
+	if (encoder) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_WARNING,"-Warning: Using the encoder microstepping is disabled");
+		writeWithPassword(r46, 0, NO_MASK, axisLen, "R46 microstep");
+	}
+
+	//set encoder variable on all the axis
+	for (int i=firstAxis; i<=lastAxis; i++) {
+		getAxis(i)->encoderEnabled = encoder;
+	}
 
 	//set feature register 1
 	epicsInt32 value;
@@ -311,6 +323,7 @@ asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int m
 	asynInt32ArrayClient *r33 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R33");
 
 	size_t axisLen = lastAxis - firstAxis +1;
+	int tobewritten[axisLen];
 
 	if (microstepPerStep>0) {
 		if (microstepPerStep > 64) {
@@ -327,10 +340,17 @@ asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int m
 		//save the actual value as variable on each axis
 		for (int i=firstAxis; i<=lastAxis; i++){
 			BeckAxis *a = getAxis(i);
-			a->microstepPerStep = pow(2.0, microstepPerStep);
+			if (a->encoderEnabled){
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d ERROR: Cannot use microstepping with encoder - reverting to 1 microstepPerStep\n", i);
+				tobewritten[i] = 0; //means 1 microstep per step (fullstep)
+			} else {
+				tobewritten[i]=microstepPerStep;
+			}
+			a->microstepPerStep = pow(2.0, tobewritten[i]);
+
 		}
 
-		writeWithPassword(r46, microstepPerStep, NO_MASK, axisLen, "R46 microstep");
+		writeWithPassword(r46, tobewritten, NO_MASK, axisLen, "R46 microstep");
 	}
 
 	if (stepPerRevolution>0) {
@@ -531,6 +551,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	//initialize local parameters
 	movePend=false;
 	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
+	encoderEnabled = false;
 	curr_min_velo = 0;
 	curr_max_velo = 0;
 	curr_home_velo = 0;
@@ -568,8 +589,8 @@ asynStatus BeckAxis::updateCurrentPosition() {
 	}
 	pHigh = pC_->r1_cache[axisNo_];
 
-	currPos = pLow + (pHigh<<16);
-	//epicsStdoutPrintf("high: %d   --  low: %d  --  tot: %.2f\n", pHigh, pLow, currPos);
+	currPos = (pLow + (pHigh<<16)) / (3.0*encoderEnabled+1.0); //when encoder is enabled divide by 4.0
+	//epicsStdoutPrintf("high: %d   --  low: %d  --  tot: %.2f %1d\n", pHigh, pLow, currPos, encoderEnabled);
 	return asynSuccess;
 }
 
@@ -651,8 +672,8 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		}
 	}
 
-	int newr2 = newPos & 0xFFFF;
-	int newr3 = (newPos>>16) & 0xFFFF;
+	int newr2 = (newPos*(3*encoderEnabled+1)) & 0xFFFF;	//when encoder is enabled multiply by 4.0
+	int newr3 = ((newPos*(3*encoderEnabled+1))>>16) & 0xFFFF;
 	if (newr2!=lastr2) {
 		r_[2]->write(newr2);
 		lastr2 = newr2;
@@ -1016,7 +1037,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		}
 
 		if (nPar<3 and encoder!=0) {
-			epicsStdoutPrintf("ERROR: Pulse per revolution parameter is mandatory when using encoder!\n");
+			epicsStdoutPrintf("-ERROR: Pulse per revolution parameter is mandatory when using encoder!\n");
 			return asynError;
 		}
 
