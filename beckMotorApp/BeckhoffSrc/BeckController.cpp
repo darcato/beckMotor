@@ -183,7 +183,7 @@ asynStatus BeckController::writeUInt32DigitalArray(asynInt32ArrayClient *client,
  * Let you read an array of registers, applying a mask on all of them.
  */
 asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements, size_t *nIn) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld %p)\n", __FUNCTION__, client, value, mask, nElements, nIn);
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld, %p)\n", __FUNCTION__, client, value, mask, nElements, nIn);
 	asynStatus status;
 
 	status = client->read(value, nElements, nIn);
@@ -211,8 +211,13 @@ bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value,
 	int oldValue[nElem];
 	size_t nIn;
 	bool toBeUpdated = false;
+	asynStatus status;
 
-	readUInt32DigitalArray(client, oldValue, mask, nElem, &nIn);
+	status = readUInt32DigitalArray(client, oldValue, mask, nElem, &nIn);
+	if (status!=asynSuccess){
+		return false;
+	}
+
 	for (size_t i=0; i<nIn; i++) {
 		if (oldValue[i]!= (int) (value[i] & mask)) {
 			toBeUpdated = true;
@@ -304,9 +309,11 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 	value = 0x8;	//enable idle
 	writeWithPassword(r52, value, 0x8, axisLen, "R52 featureReg2");
 
-	//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
-	encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
-	writeWithPassword(r34, encoderPpr, NO_MASK, axisLen, "R34 increments per revolution");
+	if (encoder) {
+		//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
+		encoderPpr = encoderPpr * 4.0;  //this is a quadrature encoder
+		writeWithPassword(r34, encoderPpr, NO_MASK, axisLen, "R34 increments per revolution");
+	}
 
 	return asynSuccess;
 }
