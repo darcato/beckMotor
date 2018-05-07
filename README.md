@@ -166,8 +166,8 @@ modbusInterposeConfig("EK9100_3", 0,        2000,        0)
         - #### INIT HOMING PARAMS
             
             ```
-            #BeckConfigController(controller,       axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, speedFromHome, emergencyAccl");
-            BeckConfigController("motorController", "0-1",  initHomingParams,    "0,           0,          0,         0,             500,           1500");
+            #BeckConfigController(controller,       axisRange, initHomingParams, "refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, emergencyAccl");
+            BeckConfigController("motorController", "0-1",  initHomingParams,    "0,           0,          0,         0,             500,         1500");
             ```
             - refPosition: the value of the position to set when homing complete
             - NCcontacts: [0/1] if the contacts are normally closed or not
