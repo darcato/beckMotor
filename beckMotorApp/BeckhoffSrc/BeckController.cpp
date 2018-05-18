@@ -382,9 +382,9 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	asynInt32ArrayClient *r44 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R44");
 
 	size_t axisLen = lastAxis - firstAxis +1;
-	epicsInt32 termType[numAxes_] = {0};
-	double fullScaleCurr[axisLen] = {0.0};
-	double setMaxAmp[axisLen] = {0.0};
+	epicsInt32 termType[numAxes_];
+	double fullScaleCurr[axisLen];
+	double setMaxAmp[axisLen];
 	int percent[axisLen];
 	size_t nIn;
 
