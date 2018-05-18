@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.1.2] - 2018-05-18
+### Fixed
+- Fixed compiler errors with older compilers
+- Fixed wrong error print at startup with encoders and microstep set to 1
+
 ## [2.1.1] - 2018-04-20
 ### Fixed
 - Fixed crash when beckhoff not connected
