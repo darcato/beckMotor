@@ -21,13 +21,13 @@
 
 TEMPLATE_TOP=$(EPICS_BASE)/templates/makeBaseApp/top
 
-ASYN=/opt/epics/Modules/v3.14.12.5/support/asyn/4-33
+ASYN=$(TOP)/modules/beck_mod/asyn-R4-33
 
 # Generic Motor record support (R6-9 Tested)
-MOTOR=/opt/epics/Modules/v3.14.12.5/support/motor/6-10
+MOTOR=$(TOP)/modules/beck_mod/motor-R6-10
 
 # EPICS_BASE usually appears last so other apps can override stuff:
-EPICS_BASE=/opt/epics/Modules/v3.14.12.5/base
+EPICS_BASE=$(TOP)/modules/beck_mod/base-R3.15.5
 
 # Set RULES here if you want to take build rules from somewhere
 # other than EPICS_BASE:

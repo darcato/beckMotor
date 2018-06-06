@@ -12,3 +12,4 @@ dbd/*
 bin/*
 lib/*
 *envPaths
+modules/
