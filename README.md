@@ -1,5 +1,7 @@
+[![build status](https://baltig.infn.it/epicscs/BeckMotor_EPICS/badges/master/pipeline.svg)](https://baltig.infn.it/epicscs/BeckMotor_EPICS/commits/master)
+
 # beckMotor
---------------------
+
 ## Epics motor record device support for Beckhoff KL2541 stepper motor driver
 
 _Developers_: Damiano Bortolato - Davide Marcato
