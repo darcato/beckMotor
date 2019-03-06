@@ -111,6 +111,19 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 		//printf("Axis %d -- CB 0x%04x -- CB 0x%04x -- CB 0x%04x\n", i, cache_[i][CB], cache_[i][DO], cache_[i][CW]);
 	}
 
+	asynStatus status;
+	for(size_t axis=0; axis<nAxis; axis++){
+		epicsInt32 name;
+		status = readReg(8, axis, &name);
+		if (status!=asynSuccess || (name!=2541 && name!=2531)) {
+			maxAddr = axis - 1;
+			nAxis_ = maxAddr;
+			nRegs_ = 3*nAxis_;
+			asynPrint(pasynUserSelf, ASYN_TRACE_WARNING, "Axis %d not found (beckhoff module not recognized). Limiting the number of axes to %d\n", axis, nAxis_);
+			break;
+		} 
+	}
+
 }
 
 //readInt32 implementation

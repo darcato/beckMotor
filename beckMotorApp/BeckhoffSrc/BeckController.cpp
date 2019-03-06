@@ -251,16 +251,19 @@ bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, 
 	return writeWithPassword(client, values, mask, nElem, regName);
 }
 
-bool BeckController::axisRangeOk(int begin, int end) {
-	//chack that the range is valid: start<=end and start>=0 and end<=num of axis -1
-	return (begin <= end and begin>=0 and end<=(numAxes_-1));
+bool BeckController::axisRangeOk(int *begin, int *end) {
+	//check that the range is valid: start<=end and start>=0 and end<=num of axis -1
+	if (*begin > *end || *begin >= numAxes_ || *end < 0) return false;
+	*begin = (*begin<0) ? 0 : *begin;
+	*end = (*end>=numAxes_) ? numAxes_-1 : *end;
+	return true;
 }
 
 /**
  * To be called by shell command - mandatory
  * Set general parameters
  * encoder = use encoder
- * whatchdog = enable whatchdog
+ * watchdog = enable watchdog
  * ppr = pulse per revolution
  * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
  */
@@ -990,7 +993,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		}
 
 		for (int i=0; i<axisListLen; i++){
-			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+			if (ctrl->axisRangeOk(&(axisNumbers[i][0]), &(axisNumbers[i][1]))) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 				ctrl->initCurrents(axisNumbers[i][0], axisNumbers[i][1], maxCurr, autoHoldinCurr, highAccCurr, lowAccCurr);
 			} else {
@@ -1049,7 +1052,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		}
 
 		for (int i=0; i<axisListLen; i++){
-			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+			if (ctrl->axisRangeOk(&(axisNumbers[i][0]), &(axisNumbers[i][1]))) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 				ctrl->init(axisNumbers[i][0], axisNumbers[i][1], (bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
 			} else {
@@ -1092,7 +1095,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		}
 
 		for (int i=0; i<axisListLen; i++){
-			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+			if (ctrl->axisRangeOk(&(axisNumbers[i][0]), &(axisNumbers[i][1]))) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 				ctrl->initHomingParams(axisNumbers[i][0], axisNumbers[i][1], (int) refPosition, (bool) NCcontacts, (bool) lsDownOne, (int) homeAtStartup, homingSpeed, emergencyAccl);
 			} else {
@@ -1120,7 +1123,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		}
 
 		for (int i=0; i<axisListLen; i++){
-			if (ctrl->axisRangeOk(axisNumbers[i][0], axisNumbers[i][1])) {
+			if (ctrl->axisRangeOk(&(axisNumbers[i][0]), &(axisNumbers[i][1]))) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 				ctrl->initStepResolution(axisNumbers[i][0], axisNumbers[i][1], (int) microstepPerStep, (int) stepPerRevolution);
 			} else {
