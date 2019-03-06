@@ -40,11 +40,11 @@ static std::vector<BeckPortDriver *> _drivers;
 int getBeckMaxAddr(const char *portName) {
 	for(std::vector<BeckPortDriver *>::iterator i=_drivers.begin(); i != _drivers.end(); i++) {
 		if(strcmp((*i)->portName, portName) == 0) {
-			epicsStdoutPrintf("getBeckMaxAddr -- OK: found: %d controllers!\n",(*i)->maxAddr);
+			epicsStdoutPrintf("OK: found: %d controllers!\n",(*i)->maxAddr);
 			return (*i)->maxAddr;
 		}
 	}
-	epicsStdoutPrintf("getBeckMaxAddr -- Error: Cannot find the underlying port!\n");
+	epicsStdoutPrintf("Error: Cannot find the underlying port!\n");
 	return -1;
 }
 
@@ -64,7 +64,6 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	char name[10];
 	int tmp;
 	createParam("R00", asynParamInt32, &roffset);
-	epicsStdoutPrintf("Creating %d parameters with reason offset of %d\n", KL2541_N_REG, roffset);
 	for (int i=1; i < KL2541_N_REG; i++){
 		sprintf(name, "R%02i", i);
 		createParam(name, asynParamInt32, &tmp);
@@ -116,10 +115,10 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 		epicsInt32 name;
 		status = readReg(8, axis, &name);
 		if (status!=asynSuccess || (name!=2541 && name!=2531)) {
-			maxAddr = axis - 1;
+			maxAddr = axis;
 			nAxis_ = maxAddr;
 			nRegs_ = 3*nAxis_;
-			asynPrint(pasynUserSelf, ASYN_TRACE_WARNING, "Axis %d not found (beckhoff module not recognized). Limiting the number of axes to %d\n", axis, nAxis_);
+			epicsStdoutPrintf("WARNING: Controller n:%02d not found (beckhoff module not recognized). Limiting to 00->%02d\n", axis, nAxis_-1);
 			break;
 		} 
 	}
