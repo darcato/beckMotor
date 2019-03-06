@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.1.3] - 2019-03-06
+- Check the actual available number of controllers on the beckDriver port to avoid errors when using incorrect parameters
+- Restrict axis ranges for the shell commands to the available ones
+- Fix soft and hard reset
+- Using epicsmng
+
 ## [2.1.2] - 2018-05-18
 ### Fixed
 - Fixed compiler errors with older compilers
