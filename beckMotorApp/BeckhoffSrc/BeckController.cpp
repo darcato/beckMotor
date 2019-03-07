@@ -337,11 +337,11 @@ asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int m
 
 	if (microstepPerStep>0) {
 		if (microstepPerStep > 64) {
-			asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-Warning: Maximum microstep resolution is 64, setting 64!\n");
+			asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-WARNING: Maximum microstep resolution is 64, setting 64!\n");
 			microstepPerStep = 64;
 		}
 		if (microstepPerStep < 1) {
-			asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-Warning: Minimum microstep resolution is 1, setting 1!\n");
+			asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-WARNING: Minimum microstep resolution is 1, setting 1!\n");
 			microstepPerStep = 1;
 		}
 
@@ -399,7 +399,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 			case 2531: fullScaleCurr[i] = 1.5; break;
 			case 2541: fullScaleCurr[i] = 5.0; break;
 			default: {
-				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Error: Cannot recognize controller type %d\n", firstAxis+i, termType[firstAxis+i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Error: Cannot recognize controller type %d\n", firstAxis+i, termType[firstAxis+i]);
 				return asynError;
 			}
 		}
@@ -409,7 +409,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 		//R36: Maximum coil current B (in % to fullScale of device)
 		if (maxAmp>=0){
 			if (maxAmp>fullScaleCurr[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", firstAxis+i, fullScaleCurr[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", firstAxis+i, fullScaleCurr[i]);
 			}
 			percent[i] = round( std::min(maxAmp, fullScaleCurr[i]) / fullScaleCurr[i] *100 ); //enforce here fullScaleCurr as higher limit
 			setMaxAmp[i] = ((double) percent[i])/100.0*fullScaleCurr[i];
@@ -427,7 +427,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	if (autoHoldinCurr>=0) {
 		for (size_t i=0; i<axisLen; i++) {
 			if (autoHoldinCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], autoHoldinCurr) / setMaxAmp[i] *100 );
 		}
@@ -438,7 +438,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	if (highAccCurr>=0) {
 		for (size_t i=0; i<axisLen; i++) {
 			if (highAccCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], highAccCurr) / setMaxAmp[i] *100 );
 		}
@@ -449,7 +449,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	if (lowAccCurr>=0) {
 		for (size_t i=0; i<axisLen; i++) {
 			if (lowAccCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], lowAccCurr) / setMaxAmp[i] *100 );
 		}
