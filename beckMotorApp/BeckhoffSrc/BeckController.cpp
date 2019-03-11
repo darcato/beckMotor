@@ -600,7 +600,7 @@ asynStatus BeckAxis::updateCurrentPosition() {
 	pHigh = pC_->r1_cache[axisNo_];
 
 	currPos = (pLow + (pHigh<<16)) / (3.0*encoderEnabled+1.0); //when encoder is enabled divide by 4.0
-	//epicsStdoutPrintf("high: %d   --  low: %d  --  tot: %.2f %1d\n", pHigh, pLow, currPos, encoderEnabled);
+	//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK, "%d high: %d   --  low: %d  --  tot: %.2f %1d\n", axisNo_, pHigh, pLow, currPos, encoderEnabled);
 	return asynSuccess;
 }
 
@@ -687,10 +687,12 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	if (newr2!=lastr2) {
 		r_[2]->write(newr2);
 		lastr2 = newr2;
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R2: %d \n", newr2);
 	}
 	if (newr3!=lastr3) {
 		r_[3]->write(newr3);
 		lastr3 = newr3;
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R3: %d \n", newr3);
 	}
 	int curr_dataOut;
 	dataOut_->read(&curr_dataOut);  //read from cache
@@ -712,7 +714,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 		controlByte_->write(0x1);
 	}
 	controlByte_->write(goCmd);  //the movement should now start
-	epicsThreadSleep(0.050); //wait at least 50ms before polling to let the controller update moveDone bit
+	epicsThreadSleep(0.1); //wait at least 100ms before polling to let the controller update moveDone bit
 	return asynSuccess;
 }
 
@@ -841,7 +843,7 @@ asynStatus BeckAxis::doMoveToHome(){
 asynStatus BeckAxis::poll(bool *moving) {
 	//epicsStdoutPrintf("- %02d poll -- homing: %d  -- exitingLimSw: %d\n", axisNo_, startingHome, exitingLimSw);
 	epicsInt32 statusByte, statusWord;
-	bool regAccess, error, ready, moveDone; //warning
+	bool regAccess, error, ready, moveDone, justDone; //warning
 	bool partialLHigh, partialLLow;
 	//epicsInt32 loadAngle;
 
@@ -865,12 +867,6 @@ asynStatus BeckAxis::poll(bool *moving) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-out of limit switch %s\n", lHigh ? "HIGH" : "LOW");
 		controlByteBits_->write(0x20, 0x20);  //enable limit switch auto stop
 		exitingLimSw = false;
-		if (startingHome) {  //re-launch homing to now perform homing from out of limsw
-			startingHome = false;
-			lHigh = partialLHigh;
-			lLow = partialLLow;
-			home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
-		}
 	}
 
 	lHigh = partialLHigh;
@@ -886,18 +882,21 @@ asynStatus BeckAxis::poll(bool *moving) {
 		setIntegerParam(pC_->motorStatusProblem_, error);
 		//warning = statusByte & 0x20;
 		moveDone = statusByte & 0x10;
-		if (moveDone && movePend) {  //movement has just finished
+		justDone = moveDone && movePend;
+		movePend = !moveDone;
+		if (justDone) {  //movement has just finished
 			//controlByteBits_->write(0, 0x2); //remove start movement bit
-			pC_->poll();
-			updateCurrentPosition();
+			//pC_->poll();
+			//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-motor stopped here: %10.2f\n", currPos);
+			//updateCurrentPosition();
 			setDoubleParam(pC_->motorPosition_, currPos);
 
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"", startingHome ? "homing unfinished":"");
 			if (startingHome) { //not yet out of limit switches, do another movement
-				return home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+				moveDone = movePend; //has been be changed by home()
 			}
 		}
-		movePend = !moveDone;
 		*moving = movePend;
 		setIntegerParam(pC_->motorStatusDone_, moveDone);
 		setIntegerParam(pC_->motorStatusMoving_, movePend);
