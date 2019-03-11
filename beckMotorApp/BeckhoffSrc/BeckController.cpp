@@ -894,7 +894,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"", startingHome ? "homing unfinished":"");
 			if (startingHome) { //not yet out of limit switches, do another movement
-				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+				return home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
 			}
 		}
 		movePend = !moveDone;
