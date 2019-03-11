@@ -772,8 +772,8 @@ asynStatus BeckAxis::stop(double acceleration){
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f) -moving: %d\n", axisNo_, __FUNCTION__, acceleration, movePend);
 	//epicsStdoutPrintf("- %02d %s ( accl: %lf ) \n", axisNo_, __FUNCTION__,  acceleration);
 
-	controlByteBits_->write(1<<1, 0x2);
-	controlByteBits_->write(0, 0x2);
+	controlByteBits_->write(0x2, 0x6); // CB.1=1 CB.2=0
+	controlByteBits_->write(0, 0x2);   // CB.1=0
 
 	return asynSuccess;
 }
