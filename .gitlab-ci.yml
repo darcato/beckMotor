@@ -2,5 +2,5 @@ image: darcato/epicsmng
 
 build:
   script: 
-    - epicsmng makemodules beck_mod.conf
+    - epicsmng makemodules -v beck_mod.conf
     - make
