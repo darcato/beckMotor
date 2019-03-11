@@ -1,14 +1,6 @@
-before_script:
-  - yum -y groupinstall "Development Tools"
-  - yum -y install readline-devel
-  - git clone https://github.com/darcato/epicsmng.git
-  - cd epicsmng
-  - sh install.sh
-  - export USER="root"
+image: darcato/epicsmng
 
-mybuilder:
-  script:
-    - cd /builds/epicscs/BeckMotor_EPICS/
-    - epicsmng makemodules -j5 -v beck_mod.conf
-    - make distclean
+build:
+  script: 
+    - epicsmng makemodules beck_mod.conf
     - make
