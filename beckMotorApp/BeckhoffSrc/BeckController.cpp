@@ -1013,7 +1013,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 	}
 	else if (strcmp(cmd, "hardReset") ==0 ) {
 		for (int i=0; i<axisListLen; i++){
-			for (int j=axisNumbers[j][0]; j<=axisNumbers[i][1]; j++){
+			for (int j=axisNumbers[i][0]; j<=axisNumbers[i][1]; j++){
 				epicsStdoutPrintf("-%02d Hard reset... \n", j);
 				ctrl->getAxis(j)->hardReset();
 			}
