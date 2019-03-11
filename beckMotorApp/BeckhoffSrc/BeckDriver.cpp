@@ -111,14 +111,14 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	}
 
 	asynStatus status;
-	for(size_t axis=0; axis<nAxis; axis++){
+	for(size_t axis=0; axis<nAxis_; axis++){
 		epicsInt32 name;
 		status = readReg(8, axis, &name);
 		if (status!=asynSuccess || (name!=2541 && name!=2531)) {
 			maxAddr = axis;
 			nAxis_ = maxAddr;
 			nRegs_ = 3*nAxis_;
-			epicsStdoutPrintf("WARNING: Controller n:%02d not found (beckhoff module not recognized). Limiting to 00->%02d\n", axis, nAxis_-1);
+			epicsStdoutPrintf("WARNING: Controller n:%02ld not found (beckhoff module not recognized). Limiting to 00->%02ld\n", axis, nAxis_-1);
 			break;
 		} 
 	}
