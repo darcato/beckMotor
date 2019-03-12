@@ -56,8 +56,8 @@ static std::vector<BeckController *> _controllers;
 
 //BeckController  :  asynMotorController  :  asynPortDriver
 //Represent a number of KL2541 Beckhoff modules
-BeckController::BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod )
-  :  asynMotorController(portName, getBeckMaxAddr(beckDriverPName), 0,
+BeckController::BeckController(const char *portName, const char *beckDriverPName, int numAxis, double movingPollPeriod, double idlePollPeriod )
+  :  asynMotorController(portName, numAxis, 0,
 						 asynUInt32DigitalMask, // Add asynUInt32Digital interface to read single bits
 						 asynUInt32DigitalMask, // Add asynUInt32Digital callbacks to read single bits
 						 ASYN_CANBLOCK | ASYN_MULTIDEVICE,
@@ -509,10 +509,15 @@ asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int ref
 
 //function called from iocsh to create a controller and save it into the _controllers vector
 extern "C" int BeckCreateController(const char *portName, const char *beckDriverPName, int movingPollPeriod, int idlePollPeriod ) {
-	BeckController *ctrl = new BeckController(portName, beckDriverPName, movingPollPeriod/1000., idlePollPeriod/1000.);
-	epicsStdoutPrintf("Controller %p\n", ctrl);
-	_controllers.push_back(ctrl);
-	return(asynSuccess);
+	int maxAddr = getBeckMaxAddr(beckDriverPName);
+	if (maxAddr>0) {
+		BeckController *ctrl = new BeckController(portName, beckDriverPName, maxAddr, movingPollPeriod/1000., idlePollPeriod/1000.);
+		epicsStdoutPrintf("OK: Controller %p\n", ctrl);
+		_controllers.push_back(ctrl);
+		return(asynSuccess);
+	}
+	epicsStdoutPrintf("ERROR: No axis available, skipping controller creation.\n");
+	return(asynError);
 }
 
 

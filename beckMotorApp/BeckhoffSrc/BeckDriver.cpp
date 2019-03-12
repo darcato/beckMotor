@@ -40,11 +40,11 @@ static std::vector<BeckPortDriver *> _drivers;
 int getBeckMaxAddr(const char *portName) {
 	for(std::vector<BeckPortDriver *>::iterator i=_drivers.begin(); i != _drivers.end(); i++) {
 		if(strcmp((*i)->portName, portName) == 0) {
-			epicsStdoutPrintf("OK: found: %d controllers!\n",(*i)->maxAddr);
+			epicsStdoutPrintf("Found: %d axis!\n",(*i)->maxAddr);
 			return (*i)->maxAddr;
 		}
 	}
-	epicsStdoutPrintf("Error: Cannot find the underlying port!\n");
+	epicsStdoutPrintf("ERROR: Cannot find the underlying port!\n");
 	return -1;
 }
 

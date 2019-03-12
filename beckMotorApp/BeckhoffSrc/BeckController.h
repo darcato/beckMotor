@@ -140,7 +140,7 @@ protected:
   char *beckDriverPName_;
 
 public:
-  BeckController(const char *portName, const char *beckDriverPName, double movingPollPeriod, double idlePollPeriod );
+  BeckController(const char *portName, const char *beckDriverPName, int numAxis, double movingPollPeriod, double idlePollPeriod );
 
   void report(FILE *fp, int level);
   BeckAxis* getAxis(asynUser *pasynUser);
