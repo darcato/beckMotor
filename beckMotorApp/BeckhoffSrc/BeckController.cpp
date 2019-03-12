@@ -83,6 +83,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 
 	//arrays to keep values polled from the controller
 	//the axis pollers will read this instead of doing modbus I/O -> single big readings instead of small ones = efficiency
+	r0_cache = new epicsInt32[numAxes_];
 	r1_cache = new epicsInt32[numAxes_];
 
 	char name[10];
@@ -102,6 +103,10 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 
 	//initialize the cache
 	size_t nin;
+	status = r_[0]->read(r0_cache, numAxes_, &nin);
+	if (status!=asynSuccess) {
+		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "Warning: could not initialize r0 cache\n");
+	}
 	status = r_[1]->read(r1_cache, numAxes_, &nin);
 	if (status!=asynSuccess) {
 		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR, "Warning: could not initialize r1 cache\n");
@@ -142,6 +147,8 @@ asynStatus BeckController::poll() {
 
 	size_t nin;
 	memInp_->read(memInp_cache.data()->data(), 3*numAxes_, &nin);
+	r_[0]->read(r0_cache, numAxes_, &nin);
+	r_[1]->read(r1_cache, numAxes_, &nin);
 
 	return asynSuccess;
 }
@@ -309,8 +316,8 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 	writeWithPassword(r32, value, 0x885e, axisLen, "R32 featureReg1");
 
 	//set feature register 2
-	value = 0x8;	//enable idle
-	writeWithPassword(r52, value, 0x8, axisLen, "R52 featureReg2");
+	value = 0x8 + 0x4;	//enable idle and latching R0 and R1
+	writeWithPassword(r52, value, 0xC, axisLen, "R52 featureReg2");
 
 	if (encoder) {
 		//set reg 34 = number of increments issued by the encoder connected to the KL2541 during a complete turn (default: 4000).
@@ -579,8 +586,6 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	lLow = false;
 	currPos = 0;
 	lastDir = 0;
-	r_[2]->read(&lastr2);
-	r_[3]->read(&lastr3);
 
 	//give current to the motor (enable)
 	controlByte_->write(0x21);
@@ -595,13 +600,8 @@ void BeckAxis::report(FILE *fp, int level) {
 //a convenient function to read the current position, stored in currPos
 asynStatus BeckAxis::updateCurrentPosition() {
 	epicsInt32 pLow, pHigh; //it is stored in 2 registers, to be read and recombined
-	pLow = pC_->memInp_cache[axisNo_][DI];
-	if (((((epicsInt32) currPos) & 0x8000)!=(pLow&0x8000) || pLow==0) && !pC_->pHighAlreadyRead) {  //most significant bit of pLow has changed, or pLow is 0 (after homing)
-		size_t nin;
-		pC_->r_[1]->read(pC_->r1_cache, pC_->numAxes_, &nin);
-		pC_->pHighAlreadyRead = true;
-		//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s(%d) Updated r1_cache: 0x%04x\n", __FUNCTION__, axisNo_, pC_->r1_cache[axisNo_]);
-	}
+	
+	pLow = pC_->r0_cache[axisNo_];
 	pHigh = pC_->r1_cache[axisNo_];
 
 	currPos = (pLow + (pHigh<<16)) / (3.0*encoderEnabled+1.0); //when encoder is enabled divide by 4.0
@@ -689,16 +689,10 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 
 	int newr2 = (newPos*(3*encoderEnabled+1)) & 0xFFFF;	//when encoder is enabled multiply by 4.0
 	int newr3 = ((newPos*(3*encoderEnabled+1))>>16) & 0xFFFF;
-	if (newr2!=lastr2) {
-		r_[2]->write(newr2);
-		lastr2 = newr2;
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R2: %d \n", newr2);
-	}
-	if (newr3!=lastr3) {
-		r_[3]->write(newr3);
-		lastr3 = newr3;
-		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R3: %d \n", newr3);
-	}
+	r_[2]->write(newr2);
+	r_[3]->write(newr3);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-R2: %d R3: %d \n", newr2, newr3);
+	
 	int curr_dataOut;
 	dataOut_->read(&curr_dataOut);  //read from cache
 	if (curr_dataOut!=0){

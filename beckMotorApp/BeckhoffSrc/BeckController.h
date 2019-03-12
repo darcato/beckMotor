@@ -101,7 +101,6 @@ private:
   epicsInt32 microstepPerStep;
   double curr_min_velo, curr_max_velo, curr_home_velo, curr_acc;
   int curr_forw;
-  int lastr2, lastr3;
   bool exitingLimSw, startingHome;  //exitingLimSw = move has started, as soon as out of lim switches remember to enable lim switch auto stopping
                                     //startingHome = exiting limit switches, when out relaunch homing
 
@@ -131,7 +130,7 @@ class epicsShareClass BeckController : public asynMotorController {
   asynInt32ArrayClient *memOut_;
 
   //these arrays are populated by the poll of the controller, and read by axis pollers
-  epicsInt32 *r1_cache;
+  epicsInt32 *r0_cache, *r1_cache;
   std::vector< std::array<epicsInt32, 3> > memInp_cache;
 
   bool pHighAlreadyRead = false;
