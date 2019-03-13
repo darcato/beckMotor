@@ -143,7 +143,6 @@ void BeckController::report(FILE *fp, int level)
  */
 asynStatus BeckController::poll() {
 	//asynPrint(pasynUserSelf, ASYN_TRACE_BECK, "polling...\n");
-	pHighAlreadyRead = false;
 
 	size_t nin;
 	memInp_->read(memInp_cache.data()->data(), 3*numAxes_, &nin);
@@ -605,7 +604,9 @@ asynStatus BeckAxis::updateCurrentPosition() {
 	pHigh = pC_->r1_cache[axisNo_];
 
 	currPos = (pLow + (pHigh<<16)) / (3.0*encoderEnabled+1.0); //when encoder is enabled divide by 4.0
-	//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK, "%d high: %d   --  low: %d  --  tot: %.2f %1d\n", axisNo_, pHigh, pLow, currPos, encoderEnabled);
+	if (movePend) {
+		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK, "%d high: %6d   --  low: %6d  --  tot: %10.2f %1d\n", axisNo_, pHigh, pLow, currPos, encoderEnabled);
+	}
 	return asynSuccess;
 }
 
@@ -884,12 +885,6 @@ asynStatus BeckAxis::poll(bool *moving) {
 		justDone = moveDone && movePend;
 		movePend = !moveDone;
 		if (justDone) {  //movement has just finished
-			//controlByteBits_->write(0, 0x2); //remove start movement bit
-			//pC_->poll();
-			//asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-motor stopped here: %10.2f\n", currPos);
-			//updateCurrentPosition();
-			setDoubleParam(pC_->motorPosition_, currPos);
-
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"", startingHome ? "homing unfinished":"");
 			if (startingHome) { //not yet out of limit switches, do another movement
 				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);

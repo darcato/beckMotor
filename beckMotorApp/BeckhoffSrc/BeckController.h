@@ -133,8 +133,6 @@ class epicsShareClass BeckController : public asynMotorController {
   epicsInt32 *r0_cache, *r1_cache;
   std::vector< std::array<epicsInt32, 3> > memInp_cache;
 
-  bool pHighAlreadyRead = false;
-
 protected:
   char *beckDriverPName_;
 
