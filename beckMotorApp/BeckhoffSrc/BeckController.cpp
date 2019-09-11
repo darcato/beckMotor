@@ -67,7 +67,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	asynStatus status;
 	//static const char *functionName = "BeckController::BeckController";
 
-	BeckAxis *pAxis; //set but not used not to be eliminated by compiler
+	//BeckAxis *pAxis; //set but not used not to be eliminated by compiler
 
 	beckDriverPName_ = (char *) mallocMustSucceed(strlen(beckDriverPName)+1, "Malloc failed\n");
 	strcpy(beckDriverPName_, beckDriverPName);
@@ -75,7 +75,7 @@ BeckController::BeckController(const char *portName, const char *beckDriverPName
 	//create each axis of this controller
 	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"Now create %d axis\n", numAxes_);
 	for (int i=0; i<numAxes_; i++){
-		pAxis = new BeckAxis(this, i);
+		new BeckAxis(this, i);
 		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"Axis n: %d successfully created\n", i);
 		std::array<epicsInt32, 3> axisRegs;
 		memInp_cache.push_back(axisRegs);;
@@ -583,7 +583,7 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	microstepPerStep = 64;
 	lHigh = false;
 	lLow = false;
-	currPos = 0;
+	currPos = 0; //mSteps
 	lastDir = 0;
 
 	//give current to the motor (enable)
@@ -611,23 +611,29 @@ asynStatus BeckAxis::updateCurrentPosition() {
 }
 
 //convenient function to set acceleration and velocity of the motor
-asynStatus BeckAxis::setAcclVelo(double min_velocity, double max_velocity, double acceleration) {
+asynStatus BeckAxis::setAcclVelo(double min_velocity_step, double max_velocity_step, double acceleration_step) {
+	
+	// Convert from record motor convention (STEPS) to beckhoff module convention (MICRO STEPS)
+	auto min_velocity_mstep = microstepPerStep * min_velocity_step;
+	auto max_velocity_mstep = microstepPerStep * max_velocity_step;
+	auto acceleration_mstep = microstepPerStep * acceleration_step;
+	
 	//info at http://infosys.beckhoff.com/italiano.php?content=../content/1040/bk9000/html/bt_bk9000_title.htm&id=259
-	if (min_velocity!=curr_min_velo) {
-		curr_min_velo = min_velocity;
-		min_velocity = (int) (min_velocity * 0.016384);  //vel=mstep/sec/16Mhz*262144
-		r_[38]->write(min_velocity);
+	if (min_velocity_mstep!=curr_min_velo) {
+		curr_min_velo = min_velocity_mstep;
+		min_velocity_mstep = (int) (min_velocity_mstep * 0.016384);  //vel=mstep/sec/16Mhz*262144
+		r_[38]->write(min_velocity_mstep);
 	}
-	if (max_velocity!=curr_max_velo) {
-		curr_max_velo = max_velocity;
-		max_velocity = (int) (max_velocity * 0.016384);
-		r_[39]->write(max_velocity);
+	if (max_velocity_mstep!=curr_max_velo) {
+		curr_max_velo = max_velocity_mstep;
+		max_velocity_mstep = (int) (max_velocity_mstep * 0.016384);
+		r_[39]->write(max_velocity_mstep);
 	}
-	if (acceleration!=curr_acc) {
-		curr_acc = acceleration;
-		acceleration = (int) (acceleration * 1.073742/1000);  //accl = mstep/s^2*2^38/(16Mhz)^2
-		r_[40]->write(acceleration);
-		r_[58]->write(acceleration);
+	if (acceleration_mstep!=curr_acc) {
+		curr_acc = acceleration_mstep;
+		acceleration_mstep = (int) (acceleration_mstep * 1.073742/1000);  //accl = mstep/s^2*2^38/(16Mhz)^2
+		r_[40]->write(acceleration_mstep);
+		r_[58]->write(acceleration_mstep);
 	}
 	return asynSuccess;
 }
@@ -657,11 +663,12 @@ asynStatus BeckAxis::softReset() {
 }
 
 //Method to execute movement
-asynStatus BeckAxis::move(double position, int relative, double min_velocity, double max_velocity, double acceleration)
+//Parameters received are in steps (not mSteps)
+asynStatus BeckAxis::move(double position_step, int relative, double min_velocity, double max_velocity, double acceleration)
 {
 	//TODO check for overflow in relative mode
 	//epicsStdoutPrintf("-%s(%.2f, %i, %.2f, %.2f, %.2f)\n", __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
-	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f, %i, %.2f, %.2f, %.2f)\n", axisNo_, __FUNCTION__, position, relative, min_velocity, max_velocity, acceleration);
+	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f, %i, %.2f, %.2f, %.2f)\n", axisNo_, __FUNCTION__, position_step, relative, min_velocity, max_velocity, acceleration);
 
 	//This to prevent to put movePend to 1 if cannot move
 	if (movePend) return asynSuccess;
@@ -669,7 +676,7 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 	setAcclVelo(min_velocity, max_velocity, acceleration);
 	exitingLimSw = false;
 
-	int newPos = (relative ? currPos : 0 ) + position;
+	int newPos = (relative ? currPos : 0 ) + position_step * microstepPerStep;
 	if (newPos==currPos) return asynSuccess;
 
 	if (lLow) {
@@ -719,23 +726,25 @@ asynStatus BeckAxis::move(double position, int relative, double min_velocity, do
 }
 
 //Method to execute the homing
+//Parameters received are in steps (not mSteps)
 asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acceleration, int forward){
 	asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%02d %s(%.2f, %.2f, %.2f, %d)\n", axisNo_, __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
 	//epicsStdoutPrintf("-%s(%.2f, %.2f, %.2f, %d)\n", __FUNCTION__, min_velocity, home_velocity, acceleration, forward);
 	startingHome = false;
 
 	//set runtime parameters
-	setAcclVelo(min_velocity, curr_max_velo, acceleration);
+	setAcclVelo(min_velocity, curr_max_velo/microstepPerStep, acceleration);
+	auto home_velocity_mstep = microstepPerStep * home_velocity;
 
 	//set homing velocity and direction
-	if (home_velocity!=curr_home_velo or forward!=curr_forw){
+	if (home_velocity_mstep!=curr_home_velo or forward!=curr_forw){
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s: updating velocity and direction\n", __FUNCTION__);
 		r_[31]->write(0x1235);  //enable write to protected regs
-		if (home_velocity!=curr_home_velo) {
-			curr_home_velo = home_velocity;
-			home_velocity = (int) home_velocity* 0.016384;  //vel=mstep/sec/16Mhz*262144
-			r_[53]->write(home_velocity);
-			r_[54]->write(home_velocity);
+		if (home_velocity_mstep!=curr_home_velo) {
+			curr_home_velo = home_velocity_mstep;
+			home_velocity_mstep = (int) home_velocity_mstep * 0.016384;  //vel=mstep/sec/16Mhz*262144
+			r_[53]->write(home_velocity_mstep);
+			r_[54]->write(home_velocity_mstep);
 		}
 		if (forward!=curr_forw) {
 			curr_forw = forward;
@@ -749,7 +758,7 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 	if (lLow || lHigh) {
 		asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-%s: limits switch, moving out...\n", __FUNCTION__);
 		lastDir = lLow ? -1 : 1;
-		move(-lastDir*OUTOFSWITCH_STEPS*microstepPerStep, 1, curr_min_velo, curr_max_velo, curr_acc);  //exit limit switches
+		move(-lastDir*OUTOFSWITCH_STEPS, 1, curr_min_velo/microstepPerStep, curr_max_velo/microstepPerStep, curr_acc/microstepPerStep);  //exit limit switches
 		startingHome = true;
 		return asynSuccess;
 	}
@@ -802,7 +811,7 @@ asynStatus BeckAxis::moveVelocity(double minVelocity, double maxVelocity, double
 	}
 	controlByte_->write(0x21);
 
-	epicsInt32 velocity = (int) (maxVelocity * 0.016384);  //conversion for beckhoff
+	epicsInt32 velocity = (int) (maxVelocity * microstepPerStep / 3.812951);  //conversion for beckhoff
 	//limit to 15 bit + sign register
 	if (velocity > 32767) {
 		velocity = 32767;
@@ -849,7 +858,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 
 	//update position
 	updateCurrentPosition();
-	setDoubleParam(pC_->motorPosition_, currPos);
+	setDoubleParam(pC_->motorPosition_, currPos/microstepPerStep);  // tell motor record value in step (currPos in mStep)
 
 	//update limit switches
 	statusWord = pC_->memInp_cache[axisNo_][SW];
@@ -887,7 +896,7 @@ asynStatus BeckAxis::poll(bool *moving) {
 		if (justDone) {  //movement has just finished
 			asynPrint(pC_->pasynUserSelf, ASYN_TRACE_BECK,"-ending position:\t%10.2f %s %s\n", currPos, (lHigh || lLow) ? (lHigh ? "limit HIGH" : "limit LOW") :"", startingHome ? "homing unfinished":"");
 			if (startingHome) { //not yet out of limit switches, do another movement
-				home(curr_min_velo, curr_home_velo, curr_acc, curr_forw);
+				home(curr_min_velo/microstepPerStep, curr_home_velo/microstepPerStep, curr_acc/microstepPerStep, curr_forw);
 				moveDone = movePend; //has been be changed by home()
 			}
 		}
