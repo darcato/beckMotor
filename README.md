@@ -28,10 +28,10 @@ However it could be easily integrated in the main motor record repository.
 The whole program is released under the GPL license.
 
 ### Required modules
-0. epics base (tested with 3.14.12.5)
+0. epics base (R3.14.12.5+)
 1. asyn (R4.33+)
 2. modbus (R2.9+)
-3. motor (tested with R6-9)
+3. motor (R6-9+)
 
 ## How to install and use:
 1. Download (via git clone or via zip file) and place it (extracted) inside a directory that we will call $(SUPPORT). This is usually the place where you keep all the epics modules.
