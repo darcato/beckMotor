@@ -573,11 +573,11 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	movePend=false;
 	limitSwitchDownIsInputOne = 0;  //to invert the limit switches, based on how they are cabled
 	encoderEnabled = false;
-	curr_min_velo = 0;
-	curr_max_velo = 0;
-	curr_home_velo = 0;
-	curr_acc = 0;
-	curr_forw = 0;
+	curr_min_velo = 0;  //mSteps
+	curr_max_velo = 0;  //mSteps
+	curr_home_velo = 0; //mSteps
+	curr_acc = 0;       //mSteps
+	curr_forw = -1;     // illegal value to trigger first writing in any case
 	startingHome = false;
 	exitingLimSw = false;
 	microstepPerStep = 64;
