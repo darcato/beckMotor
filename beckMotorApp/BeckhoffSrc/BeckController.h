@@ -150,8 +150,8 @@ public:
   asynStatus initStepResolution(int firstAxis, int lastAxis, int microstepPerStep, int stepPerRevolution);
   asynStatus readUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements, size_t *nIn);
   asynStatus writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements);
-  bool writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, size_t nElem, const char *regName);
-  bool writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, size_t nElem, const char *regName);
+  bool writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, int nElem, const char *regName);
+  bool writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName);
   bool axisRangeOk(int *begin, int *end);
 
   friend class BeckAxis;

@@ -210,8 +210,8 @@ asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, 
  * writes only if necessary: a read is always performed
  * to avoid useless writings to static memory
  */
-bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, size_t nElem, const char *regName) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %ld, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %d, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
 
 	int password[numAxes_];
 	int oldValue[nElem];
@@ -250,8 +250,8 @@ bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value,
 /**
  * write the same value on all the registers pointed by a client
  */
-bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, size_t nElem, const char *regName) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %d, %d, %ld, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, int nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %d, %d, %d, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
 	int values[nElem];
 	std::fill_n(values, nElem, value);
 	return writeWithPassword(client, values, mask, nElem, regName);
@@ -283,7 +283,7 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 	asynInt32ArrayClient *r46 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R46");
 	asynInt32ArrayClient *r52 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R52");
 
-	size_t axisLen = lastAxis - firstAxis +1;
+	int axisLen = lastAxis - firstAxis +1;
 
 	//reset precedent errors by putting 0 -> 1 -> 0 to bit 0x40 of control byte
 	//and stop all the axis by putting 0 -> 1 -> 0 to bit 0x2 of control byte
@@ -338,7 +338,7 @@ asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int m
 	asynInt32ArrayClient *r46 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R46");
 	asynInt32ArrayClient *r33 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R33");
 
-	size_t axisLen = lastAxis - firstAxis +1;
+	int axisLen = lastAxis - firstAxis +1;
 	int tobewritten[axisLen];
 
 	if (microstepPerStep>0) {
@@ -390,7 +390,7 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	asynInt32ArrayClient *r43 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R43");
 	asynInt32ArrayClient *r44 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R44");
 
-	size_t axisLen = lastAxis - firstAxis +1;
+	int axisLen = lastAxis - firstAxis +1;
 	epicsInt32 termType[numAxes_];
 	double fullScaleCurr[axisLen];
 	double setMaxAmp[axisLen];
@@ -400,22 +400,22 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 	//read controller code and convert ampere to %
 	r_[8]->read(termType, numAxes_, &nIn);
 
-	for (size_t i=0; i<axisLen; i++) {
+	for (int i=0; i<axisLen; i++) {
 		switch (termType[firstAxis+i]) {
 			case 2531: fullScaleCurr[i] = 1.5; break;
 			case 2541: fullScaleCurr[i] = 5.0; break;
 			default: {
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Error: Cannot recognize controller type %d\n", firstAxis+i, termType[firstAxis+i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d Error: Cannot recognize controller type %d\n", firstAxis+i, termType[firstAxis+i]);
 				return asynError;
 			}
 		}
-		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02ld Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", firstAxis+i, termType[firstAxis+i], fullScaleCurr[i]);
+		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%02d Terminal: Beckhoff KL%d  -  Max available ampere: %.2lf\n", firstAxis+i, termType[firstAxis+i], fullScaleCurr[i]);
 
 		//R35: Maximum coil current A (in % to fullScale of device)
 		//R36: Maximum coil current B (in % to fullScale of device)
 		if (maxAmp>=0){
 			if (maxAmp>fullScaleCurr[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", firstAxis+i, fullScaleCurr[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d Warning: Cannot set max current higher than full scale, reverting to %.2lfA\n", firstAxis+i, fullScaleCurr[i]);
 			}
 			percent[i] = round( std::min(maxAmp, fullScaleCurr[i]) / fullScaleCurr[i] *100 ); //enforce here fullScaleCurr as higher limit
 			setMaxAmp[i] = ((double) percent[i])/100.0*fullScaleCurr[i];
@@ -431,9 +431,9 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 
 	//R44: Coil current, v = 0 (automatic) (in % to maxAmp)
 	if (autoHoldinCurr>=0) {
-		for (size_t i=0; i<axisLen; i++) {
+		for (int i=0; i<axisLen; i++) {
 			if (autoHoldinCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d Warning: Cannot set holding current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], autoHoldinCurr) / setMaxAmp[i] *100 );
 		}
@@ -442,9 +442,9 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 
 	//R42: Coil current, a > ath (in % to maxAmp)
 	if (highAccCurr>=0) {
-		for (size_t i=0; i<axisLen; i++) {
+		for (int i=0; i<axisLen; i++) {
 			if (highAccCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d Warning: Cannot set over acceleration current higher than maximum coil current, reverting to %.2lfA\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], highAccCurr) / setMaxAmp[i] *100 );
 		}
@@ -453,9 +453,9 @@ asynStatus BeckController::initCurrents(int firstAxis, int lastAxis, double maxA
 
 	//R43: Coil current, a <= ath (in % to maxAmp)
 	if (lowAccCurr>=0) {
-		for (size_t i=0; i<axisLen; i++) {
+		for (int i=0; i<axisLen; i++) {
 			if (lowAccCurr>setMaxAmp[i]) {
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02ld Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n\n", firstAxis+i, setMaxAmp[i]);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d Warning: Cannot set sub acceleration current higher than maximum coil current, reverting to %.2lfA\n\n", firstAxis+i, setMaxAmp[i]);
 			}
 			percent[i] = round( std::min(setMaxAmp[i], lowAccCurr) / setMaxAmp[i] *100 );
 		}
@@ -481,7 +481,7 @@ asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int ref
 	asynInt32ArrayClient *r55 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R55");
 	asynInt32ArrayClient *r56 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R56");
 
-	size_t axisLen = lastAxis - firstAxis +1;
+	int axisLen = lastAxis - firstAxis +1;
 	epicsUInt32 featureReg;
 
 	writeWithPassword(r55, refPosition & 0xFFFF, NO_MASK, axisLen, "R55 reference position (low word)");
