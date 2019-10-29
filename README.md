@@ -330,3 +330,12 @@ when the encoder reports a position slightly different from the set one.
 This way, when the initial configuration parameters specify to use the encoder, 
 the encoder value is simply reported as the motor readback value. The motor record
 encoder fields are not used.
+
+### Microstepping
+
+To enable microsteps the user must execute ioc shell command:
+ 
+    #BeckConfigController(controller, axisRange, initStepResolution, "microstepPerStep, stepPerRevolution");
+
+where the `microstepPerStep` can be a power of 2 up to 64 and the `stepPerRevolution` is the construction parameter of the stepper motor and must be specified in full steps.
+After this the user must set the `MRES` field of the motor record to the same value as `microstepPerStep` and `SREV` to `stepPerRevolution`. Now all the other fields are to be intended in microstep units, for example `VELO` is the number of microsteps per second. `UREV` will show the number of microsteps per revolution.
