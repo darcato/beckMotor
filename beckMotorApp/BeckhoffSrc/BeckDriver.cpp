@@ -80,19 +80,19 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 	createParam("MO", asynParamInt32, &memoryOutReas_);
 
 	//for each port, connect a client to read or write all the memory
-	inRegs_ = new asynInt32ArrayClient(inModbusPort, startAddr, "MODBUS_DATA");
-	outRegs_ = new asynInt32ArrayClient(outModbusPort, startAddr+2048, "MODBUS_DATA");
+	inRegs_ = new asynInt32ArrayClient(inModbusPort, startAddr, "UINT16");
+	outRegs_ = new asynInt32ArrayClient(outModbusPort, startAddr+2048, "UINT16");
 
 	//for each axis connect to the modbus registers
 	for(int i=0; i<nAxis; i++){
 		epicsUInt16 inAddr = startAddr + i*3;
 		epicsUInt16 outAddr = startAddr + 2048 + i*3;   //output registers are shifted by 0x800 = 2048
-		statusByte_.push_back(new asynInt32Client(inModbusPort, inAddr+0, "MODBUS_DATA"));
-		dataIn_.push_back(new asynInt32Client(inModbusPort, inAddr+1, "MODBUS_DATA"));
-		statusWord_.push_back(new asynInt32Client(inModbusPort, inAddr+2, "MODBUS_DATA"));
-		controlByte_.push_back(new asynInt32Client(outModbusPort, outAddr+0, "MODBUS_DATA"));
-		dataOut_.push_back(new asynInt32Client(outModbusPort, outAddr+1, "MODBUS_DATA"));
-		controlWord_.push_back(new asynInt32Client(outModbusPort, outAddr+2, "MODBUS_DATA"));
+		statusByte_.push_back(new asynInt32Client(inModbusPort, inAddr+0, "UINT16"));
+		dataIn_.push_back(new asynInt32Client(inModbusPort, inAddr+1, "UINT16"));
+		statusWord_.push_back(new asynInt32Client(inModbusPort, inAddr+2, "UINT16"));
+		controlByte_.push_back(new asynInt32Client(outModbusPort, outAddr+0, "UINT16"));
+		dataOut_.push_back(new asynInt32Client(outModbusPort, outAddr+1, "UINT16"));
+		controlWord_.push_back(new asynInt32Client(outModbusPort, outAddr+2, "UINT16"));
 
 		std::array<epicsInt32, 3> axisOutRegs;
 		cache_.push_back(axisOutRegs);
