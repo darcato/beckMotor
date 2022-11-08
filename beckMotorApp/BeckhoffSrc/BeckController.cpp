@@ -354,10 +354,10 @@ asynStatus BeckController::initStepResolution(int firstAxis, int lastAxis, int m
 		//calculate value to be written in HW, as of beckhoff datasheet
 		microstepPerStep = round(log2(microstepPerStep));
 		//save the actual value as variable on each axis
-		for (int i=firstAxis; i<=lastAxis; i++){
-			BeckAxis *a = getAxis(i);
+		for (int i=0; i<axisLen; i++){
+			BeckAxis *a = getAxis(firstAxis+i);
 			if (a->encoderEnabled and microstepPerStep!=0){
-				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d WARNING: Cannot use microstepping with encoder - reverting to 1 microstepPerStep\n", i);
+				asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-%02d WARNING: Cannot use microstepping with encoder - reverting to 1 microstepPerStep\n", firstAxis+i);
 				tobewritten[i] = 0; //means 1 microstep per step (fullstep)
 			} else {
 				tobewritten[i]=microstepPerStep;
