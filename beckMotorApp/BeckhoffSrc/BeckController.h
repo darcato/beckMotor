@@ -68,6 +68,7 @@ public:
 private:
   asynStatus updateCurrentPosition();
   asynStatus setAcclVelo(double min_velocity, double max_velocity, double acceleration);
+  void setAutoStop(bool autoStop);
 
   BeckController *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
                                    *   Abbreviated because it is used very frequently */
@@ -103,6 +104,8 @@ private:
   int curr_forw;
   bool exitingLimSw, startingHome;  //exitingLimSw = move has started, as soon as out of lim switches remember to enable lim switch auto stopping
                                     //startingHome = exiting limit switches, when out relaunch homing
+  bool autoStop;
+  int autoStopVal;
 
 friend class BeckController;
 };
@@ -144,7 +147,7 @@ public:
   BeckAxis* getAxis(int axisNo);
   asynStatus poll();
 
-  asynStatus init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert);
+  asynStatus init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert, bool autoStop);
   asynStatus initCurrents(int firstAxis, int lastAxis, double maxCurr, double autoHoldinCurr, double highAccCurr, double lowAccCurr);
   asynStatus initHomingParams(int firstAxis, int lastAxis, int refPosition, bool NCcontacts, bool lsDownOne, int homeAtStartup, double homingSpeed, double emergencyAccl);
   asynStatus initStepResolution(int firstAxis, int lastAxis, int microstepPerStep, int stepPerRevolution);

@@ -273,8 +273,8 @@ bool BeckController::axisRangeOk(int *begin, int *end) {
  * ppr = pulse per revolution
  * invert = if an external encoder is installed opposite the stepper motor (e.g. the encoder shows a negative rotation when the motor rotates in positive direction).
  */
-asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert) {
-	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d, %d, %d)\n", __FUNCTION__, firstAxis, lastAxis, encoder, watchdog, encoderPpr, encoderInvert);
+asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool watchdog, int encoderPpr, bool encoderInvert, bool autoStop) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d, %d, %d, %d)\n", __FUNCTION__, firstAxis, lastAxis, encoder, watchdog, encoderPpr, encoderInvert, autoStop);
 
 	//creating array clients starting at firstAxis
 	asynInt32ArrayClient *cb = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "CB");
@@ -301,15 +301,16 @@ asynStatus BeckController::init(int firstAxis, int lastAxis, bool encoder, bool 
 		writeWithPassword(r46, 0, NO_MASK, axisLen, "R46 microstep");
 	}
 
-	//set encoder variable on all the axis
+	//set encoder and autoStop variables on all the axis
 	for (int i=firstAxis; i<=lastAxis; i++) {
 		getAxis(i)->encoderEnabled = encoder;
+		getAxis(i)->setAutoStop(autoStop);
 	}
 
 	//set feature register 1
 	epicsInt32 value;
 	value = 0x18	//path control mode
-		  + 0x2 	//enable autostop
+		  + (autoStop<<1) 	//enable autostop
 		  + (!encoder<<15) + (!encoder<<11) + (!watchdog<<2) + (encoderInvert << 6);
 
 	writeWithPassword(r32, value, 0x885e, axisLen, "R32 featureReg1");
@@ -585,9 +586,16 @@ BeckAxis::BeckAxis(BeckController *pC, int axis) :
 	lLow = false;
 	currPos = 0; //mSteps
 	lastDir = 0;
+	setAutoStop(true);
 
 	//give current to the motor (enable)
-	controlByte_->write(0x21);
+	controlByte_->write(autoStopVal + 0x1); //at startup always autoStop
+}
+
+//a report function for the record
+void BeckAxis::setAutoStop(bool autoStopArg) {
+	autoStop = autoStopArg;
+	autoStopVal = autoStop << 5;
 }
 
 //a report function for the record
@@ -707,7 +715,7 @@ asynStatus BeckAxis::move(double position_step, int relative, double min_velocit
 		dataOut_->write(0);
 	}
 
-	int goCmd = exitingLimSw ? 0x5 : 0x25;
+	int goCmd = exitingLimSw ? 0x5 : autoStopVal + 0x5; //0x25
 
 	//start movement
 	lastDir = (newPos-currPos) / abs(newPos-currPos);
@@ -1027,17 +1035,21 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		char *watchdogStr=0;
 		char *encoderPprStr=0;
 		char *encoderInvertStr=0;
+		char *autoStopStr=0;
 
-		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,]", &encoderStr,
-																  &watchdogStr,
-																  &encoderPprStr,
-																  &encoderInvertStr);
+		int nPar = sscanf(cmdArgs, "%m[^,],%m[^,],%m[^,],%m[^,],%m[^,]", &encoderStr,
+																  		 &watchdogStr,
+																  		 &encoderPprStr,
+																  		 &encoderInvertStr,
+																  		 &autoStopStr);
 		double encoder = 0;
 		double watchdog = 0;
 		double encoderPpr = 400;
 		double encoderInvert = 0;
+		double autoStop = 1;
 
 		switch (nPar) {
+			case 5: epicsScanDouble(autoStopStr, &autoStop);
 			case 4: epicsScanDouble(encoderInvertStr, &encoderInvert);
 			case 3: epicsScanDouble(encoderPprStr, &encoderPpr);
 			case 2: epicsScanDouble(watchdogStr, &watchdog);
@@ -1056,7 +1068,7 @@ extern "C" int BeckConfigController(const char *ctrlName, char *axisRangeStr, co
 		for (int i=0; i<axisListLen; i++){
 			if (ctrl->axisRangeOk(&(axisNumbers[i][0]), &(axisNumbers[i][1]))) {
 				epicsStdoutPrintf("-Applying to axis range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
-				ctrl->init(axisNumbers[i][0], axisNumbers[i][1], (bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert);
+				ctrl->init(axisNumbers[i][0], axisNumbers[i][1], (bool) encoder, (bool) watchdog, (int) encoderPpr, (bool) encoderInvert, (bool) autoStop);
 			} else {
 				epicsStdoutPrintf("-ERROR: Invalid range %02d -> %02d \n", axisNumbers[i][0], axisNumbers[i][1]);
 			}
