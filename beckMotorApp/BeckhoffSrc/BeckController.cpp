@@ -205,6 +205,27 @@ asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, 
 	return asynSuccess;
 
 }
+
+/**
+ * Directly write with password, don't check if update is required
+ */
+void BeckController::writeWithPasswordDirect(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName) {
+	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %d, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
+	
+	int password[numAxes_];
+	
+	//insert password in all the registers 31 - this enables writing to protected registers
+	std::fill_n(password, numAxes_, 0x1235);
+	r_[31]->write(password, numAxes_);
+
+	//insert value inside the protected register
+	writeUInt32DigitalArray(client, value, mask, nElem);
+
+	//remove password
+	std::fill_n(password, numAxes_, 0);
+	r_[31]->write(password, numAxes_);
+}
+
 /**
  * write the an array of values value on all the registers pointed by a client
  * writes only if necessary: a read is always performed
@@ -213,7 +234,6 @@ asynStatus BeckController::readUInt32DigitalArray(asynInt32ArrayClient *client, 
 bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName) {
 	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%p, %p, %d, %d, %s)\n", __FUNCTION__, client, value, mask, nElem, regName);
 
-	int password[numAxes_];
 	int oldValue[nElem];
 	size_t nIn;
 	bool toBeUpdated = false;
@@ -232,16 +252,7 @@ bool BeckController::writeWithPassword(asynInt32ArrayClient *client, int *value,
 	}
 
 	if (toBeUpdated) {
-		//insert password in all the registers 31 - this enables writing to protected registers
-		std::fill_n(password, numAxes_, 0x1235);
-		r_[31]->write(password, numAxes_);
-
-		//insert value inside the protected register
-		writeUInt32DigitalArray(client, value, mask, nIn);
-
-		//remove password
-		std::fill_n(password, numAxes_, 0);
-		r_[31]->write(password, numAxes_);
+		writeWithPasswordDirect(client, value, mask, nIn, regName);
 	}
 
 	return toBeUpdated;
@@ -475,10 +486,9 @@ asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int ref
 	asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"-%s(%02d-%02d, %d, %d, %d, %d, %.2f, %.2f)\n", __FUNCTION__, firstAxis, lastAxis, refPosition, NCcontacts, lsDownOne, homeAtStartup, homingSpeed, emergencyAccl);
 
 	//creating array clients starting at firstAxis
+	asynInt32ArrayClient *r7  = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R07");
 	asynInt32ArrayClient *r50 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R50");
 	asynInt32ArrayClient *r52 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R52");
-	asynInt32ArrayClient *r53 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R53");
-	asynInt32ArrayClient *r54 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R54");
 	asynInt32ArrayClient *r55 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R55");
 	asynInt32ArrayClient *r56 = new asynInt32ArrayClient(beckDriverPName_, firstAxis, "R56");
 
@@ -490,12 +500,11 @@ asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int ref
 
 	featureReg = (NCcontacts<<15) + (NCcontacts<<14);
 	if (writeWithPassword(r52, featureReg, 0xC000, axisLen, "R52 featureReg2")){
-		asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,"-WARNING: changing type of contacts usually requires a reboot or a softReset of the Beckhoff module!\n");
-	}
-
-	if (homingSpeed>=0){
-		writeWithPassword(r53, (int) homingSpeed, NO_MASK, axisLen, "R53 homing speed");
-		writeWithPassword(r54, (int) homingSpeed, NO_MASK, axisLen, "R54 homing speed");
+		asynPrint(pasynUserSelf, ASYN_TRACE_BECK,"Performing a softReset of the Beckhoff module!\n");
+		int softReset[axisLen];
+		std::fill_n(softReset, axisLen, 0x8000);
+		writeWithPasswordDirect(r7, softReset, NO_MASK, axisLen, "R07 Command (SoftReset)");
+		epicsThreadSleep(0.2); //Wait for the module to reset, tentative timeout		
 	}
 
 	if (emergencyAccl>=0){
@@ -504,7 +513,7 @@ asynStatus BeckController::initHomingParams(int firstAxis, int lastAxis, int ref
 
 	for (int i=firstAxis; i<=lastAxis; i++){
 		if (homeAtStartup!=0) {
-			getAxis(i)->home(100, 500, 1000, (homeAtStartup>0) ? 1 : 0);
+			getAxis(i)->home(100, homingSpeed, 1000, (homeAtStartup>0) ? 1 : 0);
 		}
 
 		getAxis(i)->limitSwitchDownIsInputOne = lsDownOne;
@@ -751,8 +760,8 @@ asynStatus BeckAxis::home(double min_velocity, double home_velocity, double acce
 		if (home_velocity_mstep!=curr_home_velo) {
 			curr_home_velo = home_velocity_mstep;
 			home_velocity_mstep = (int) home_velocity_mstep * 0.016384;  //vel=mstep/sec/16Mhz*262144
-			r_[53]->write(home_velocity_mstep);
-			r_[54]->write(home_velocity_mstep);
+			r_[53]->write(home_velocity_mstep); //backward home velocity
+			r_[54]->write(home_velocity_mstep); //forward home velocity
 		}
 		if (forward!=curr_forw) {
 			curr_forw = forward;

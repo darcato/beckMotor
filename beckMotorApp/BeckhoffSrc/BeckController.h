@@ -155,6 +155,7 @@ public:
   asynStatus writeUInt32DigitalArray(asynInt32ArrayClient *client, int *value, uint mask, size_t nElements);
   bool writeWithPassword(asynInt32ArrayClient *client, int value, uint mask, int nElem, const char *regName);
   bool writeWithPassword(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName);
+  void writeWithPasswordDirect(asynInt32ArrayClient *client, int *value, uint mask, int nElem, const char *regName);
   bool axisRangeOk(int *begin, int *end);
 
   friend class BeckAxis;
