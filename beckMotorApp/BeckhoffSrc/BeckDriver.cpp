@@ -110,6 +110,13 @@ BeckPortDriver::BeckPortDriver(const char *portName, int startAddr, int nAxis, c
 		//printf("Axis %d -- CB 0x%04x -- CB 0x%04x -- CB 0x%04x\n", i, cache_[i][CB], cache_[i][DO], cache_[i][CW]);
 	}
 
+	// remove watchdog
+	asynInt32Client *watchdog_time = new asynInt32Client(outModbusPort, 0x1120, "UINT16");
+	asynInt32Client *watchdog_rset = new asynInt32Client(outModbusPort, 0x1121, "UINT16");
+	watchdog_rset->write(0xBECF);
+	watchdog_rset->write(0xAFFE);
+	watchdog_time->write(0);
+
 	asynStatus status;
 	for(size_t axis=0; axis<nAxis_; axis++){
 		epicsInt32 name;
